@@ -72,8 +72,8 @@ def execute(raw_args):
 
     if read_extension == ".e57":
         point_cloud.read_e57(str(read_path))
-
-
+    elif read_extension == ".las":
+        point_cloud.read_las(str(read_path))
 
     if write_extension == ".e57":
         point_cloud.write_e57(str(write_path))
