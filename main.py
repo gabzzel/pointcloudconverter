@@ -8,7 +8,7 @@ import time
 def parse_args(valid_extensions, raw_args=None):
     args = sys.argv[1:] if raw_args is None else raw_args
 
-    if len(sys.argv) < 1:
+    if len(args) < 1:
         print(f"No filepath provided. Cancelling.")
         return None
 
@@ -29,7 +29,7 @@ def parse_args(valid_extensions, raw_args=None):
     write_path = Path(file_path_raw).with_suffix(write_extension)
 
     if len(args) > 1:
-        destination = sys.argv[1].strip().lower()
+        destination = args[1].strip().lower()
         if destination.startswith('.') and destination in valid_extensions:
             write_extension = destination
         else:
@@ -59,13 +59,14 @@ def execute(raw_args):
 
     valid_extensions = list(readers_dict.keys())
 
-    args = parse_args(valid_extensions)
+    args = parse_args(valid_extensions, raw_args)
     if args is None:
         return
 
     read_path, read_extension, write_path, write_extension = args
+    print(args)
 
 
 if __name__ == '__main__':
-    execute(sys.argv[1:])
-
+    if len(sys.argv) > 1:
+        execute(sys.argv[1:])
