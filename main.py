@@ -66,7 +66,9 @@ def execute(raw_args):
     read_path, read_extension, write_path, write_extension = args
     print(args)
 
-
 if __name__ == '__main__':
     if len(sys.argv) > 1:
         execute(sys.argv[1:])
+    else:
+        print("No arguments given.")
+        time.sleep(10)
