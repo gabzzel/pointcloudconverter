@@ -3,6 +3,9 @@ from argparse import ArgumentParser
 import sys
 from pathlib import Path
 import time
+import pye57
+
+from PointCloud import PointCloud
 
 
 def parse_args(valid_extensions, raw_args=None):
@@ -64,7 +67,22 @@ def execute(raw_args):
         return
 
     read_path, read_extension, write_path, write_extension = args
+
+    point_cloud = PointCloud()
+
+    if read_extension == ".e57":
+        point_cloud.read_e57(str(read_path))
+
+
+
+    if write_extension == ".e57":
+        point_cloud.write_e57(str(write_path))
+
     print(args)
+
+
+
+
 
 if __name__ == '__main__':
     if len(sys.argv) > 1:
