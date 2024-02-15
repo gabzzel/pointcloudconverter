@@ -77,6 +77,8 @@ def execute(raw_args):
 
     if write_extension == ".e57":
         point_cloud.write_e57(str(write_path))
+    elif write_extension == ".las":
+        point_cloud.write_las(str(write_path))
 
     print(args)
 
