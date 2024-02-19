@@ -2,6 +2,7 @@ import numpy as np
 import pye57  # https://pypi.org/project/pye57/
 import laspy  # https://pypi.org/project/laspy/
 
+
 class PointCloud:
     def __init__(self):
         self.points: np.ndarray = None
@@ -67,7 +68,7 @@ class PointCloud:
         point_count = int(las.header.point_count)
 
         # TODO read the scaling value so we can convert correctly
-        self.points = np.array(las.xyz)
+        self.points = las.xyz  # We can directly assign this, since the getter returns a new array
 
         if has_rgb:
             r = np.array(las.red)
@@ -83,25 +84,28 @@ class PointCloud:
     def write_las(self, filename: str):
         point_format = 3
         header = laspy.LasHeader(point_format=point_format)
-        header.offsets = np.array([0.0, 0.0, 0.0])
-        header.scales = np.array([1.0, 1.0, 1.0])
+
+        header.offsets = np.min(self.points, axis=0)
+        header.scales = np.max(self.points - header.offsets, axis=0) / np.iinfo(np.int32).max
         las = laspy.LasData(header=header)
 
         # TODO properly write the data. We cannot handle fractional values well.
-        las.x = self.points[:, 0].astype(np.int32)
-        las.y = self.points[:, 1].astype(np.int32)
-        las.z = self.points[:, 2].astype(np.int32)
+        las.x = self.points[:, 0]
+        las.y = self.points[:, 1]
+        las.z = self.points[:, 2]
+
+        int16_max = np.iinfo(np.uint16).max
 
         if self.intensities is not None:
-            # Intensity is always 16bit with las, meaning the max value is 65535
-            las.intensity = (self.intensities * 65535).astype(np.uint16)
+            # Intensity is always unsigned 16bit with las, meaning the max value is 65535
+            las.intensity = (self.intensities * int16_max).astype(np.uint16)
         else:
             las.intensity = np.zeros(shape=(len(self.points),), dtype=np.uint16)
 
         if self.colors is not None:
-            # Like intensity, colors are 16bit, so we need to normalize to [0-65536]
-            las.red = (self.colors[:, 0] * 65535).astype(np.uint16)
-            las.green = (self.colors[:, 1] * 65535).astype(np.uint16)
-            las.blue = (self.colors[:, 2] * 65535).astype(np.uint16)
+            # Like intensity, colors are unsigned 16bit, so we need to normalize to [0-65536]
+            las.red = (self.colors[:, 0] * int16_max).astype(np.uint16)
+            las.green = (self.colors[:, 1] * int16_max).astype(np.uint16)
+            las.blue = (self.colors[:, 2] * int16_max).astype(np.uint16)
 
         las.write(filename)
