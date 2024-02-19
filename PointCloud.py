@@ -1,3 +1,5 @@
+import sys
+
 import numpy
 import numpy as np
 import pye57  # https://pypi.org/project/pye57/
@@ -5,6 +7,94 @@ import laspy  # https://pypi.org/project/laspy/
 import plyfile  # https://pypi.org/project/plyfile/ and https://python-plyfile.readthedocs.io/en/latest/index.html
 from plyfile import PlyData
 from pye57 import e57
+
+def max_value_for_type(data_type):
+    if np.issubdtype(data_type, np.integer):
+        if isinstance(data_type, np.dtype):
+            return np.iinfo(data_type).max
+        elif data_type == int:
+            return sys.maxsize
+    elif np.issubdtype(data_type, np.floating):
+        if isinstance(data_type, np.dtype):
+            return np.finfo(data_type).max
+        elif data_type == float:
+            return sys.float_info.max
+    else:
+        raise ValueError("Unsupported data type")
+
+def convert_to_type_incl_scaling(array: np.ndarray, target_type: np.dtype, float_max_is_1: bool):
+    """ If max value is None, the max value is inferred from the types. Else, this max value is used."""
+
+    # We don't have to do anything
+    if array.dtype == target_type:
+        return array
+
+    if np.issubdtype(array.dtype, np.floating) and np.issubdtype(target_type, np.floating):
+        return convert_type_floats_incl_scaling(array, target_type)
+
+    elif np.issubdtype(array.dtype, np.integer) and np.issubdtype(target_type, np.integer):
+        return convert_type_integers_incl_scaling(array, target_type)
+
+    # If we are currently dealing with a float, but we need to convert to integer...
+    elif np.issubdtype(array.dtype, np.floating) and np.issubdtype(target_type, np.integer):
+        # If we can assume the values are between 0 and 1, we can just multiply by the max value and return.
+        if float_max_is_1:
+            return (array * max_value_for_type(target_type)).astype(dtype=target_type)
+        # If we cannot assume the values are between 0 and 1, we have to make sure we divide by the max first.
+        else:
+            max_value = max_value_for_type(array.dtype)
+            return (array / max_value * max_value_for_type(target_type)).astype(dtype=target_type)
+
+    # We are dealing with an integer that needs to be converted to a float.
+    elif np.issubdtype(array.dtype, np.integer) and np.issubdtype(target_type, np.floating):
+        as_float64 = array.astype(dtype=np.float64)  # Make sure we can handle the dividing
+        return (as_float64 / max_value_for_type(array.dtype) * np.finfo(target_type)).astype(target_type)
+
+
+def convert_type_integers_incl_scaling(array, target_type):
+    # We are dealing with a signed integer array to unsigned one.
+    if np.iinfo(array.dtype).min < 0 and np.iinfo(target_type).min == 0:
+        print(f"Warning! The original array possibly contains negative values. The signs will not be preserved "
+              f"when converting to the new target type {target_type}.")
+
+    current_max = np.iinfo(array.dtype).max + 1
+    target_max = np.iinfo(target_type).max + 1
+    if current_max > target_max:  # If we need to scale down, make sure we divide by a whole number.
+        return (array / (current_max / target_max)).astype(dtype=target_type)
+    else:  # If we need to scale up, target is higher than current, so we increase
+        return (array * (target_max / current_max)).astype(dtype=target_type)
+
+
+def convert_type_floats_incl_scaling(array, target_type):
+    current_max_value = np.finfo(array.dtype).max
+    target_max_value = np.finfo(target_type).max
+    # First divide by the max value and then multiply by new max value, not the other way around to prevent overflow!
+    return (array / current_max_value) * target_max_value.astype(dtype=target_type)
+
+
+def map_field_names(from_field_names: list[str]) -> dict:
+    mapping = {'x': None, 'y': None, 'z': None, 'r': None, 'g': None, 'b': None, 'intensity': None}
+
+    for field_name in from_field_names:
+        field_name_lowered: str = field_name.lower()
+        if mapping['x'] is None and "x" in field_name_lowered:
+            mapping['x'] = field_name
+        elif mapping['y'] is None and "y" in field_name_lowered:
+            mapping['y'] = field_name
+        elif mapping['z'] is None and "z" in field_name_lowered:
+            mapping['z'] = field_name
+        elif mapping['r'] is None and (field_name_lowered == "r" or "red" in field_name_lowered):
+            mapping['r'] = field_name
+        elif mapping['g'] is None and (field_name_lowered == "g" or "green" in field_name_lowered):
+            mapping['g'] = field_name
+        elif mapping['b'] is None and (field_name_lowered == "b" or "blue" in field_name_lowered):
+            mapping['b'] = field_name
+
+        # Get both 'intensity' and 'intensities'
+        elif mapping['intensity'] is None and "intensit" in field_name_lowered:
+            mapping['intensity'] = field_name
+
+    return mapping
 
 
 class PointCloud:
@@ -24,23 +114,26 @@ class PointCloud:
         data = e57_object.read_scan_raw(0)
         header: pye57.ScanHeader = e57_object.get_header(0)
 
-        fm = self.map_field_names(header.point_fields)  # Field mapping
+        fm = map_field_names(header.point_fields)  # Field mapping
 
-        self.points = np.stack((data[fm['x']], data[fm['y']], data[fm['z']]), axis=1) \
+        self.points = np.stack((data[fm['x']], data[fm['y']], data[fm['z']]), axis=1, dtype=self.points_default_dtype) \
             if fm['x'] and fm['y'] and fm['z'] \
             else np.zeros(shape=(header.point_count, 3), dtype=self.points_default_dtype)
 
-        self.intensities = data[fm['intensity']] \
+        self.intensities = data[fm['intensity']].astype(np.float32) \
             if fm['intensity'] \
             else np.zeros(shape=(header.point_count,), dtype=self.intensities_default_dtype)
 
-        self.colors = np.stack((data[fm['r']], data[fm['g']], data[fm['b']]), axis=1) \
+        # We assume the .e57 has colors in [0,255]
+        self.colors = np.stack((data[fm['r']], data[fm['g']], data[fm['b']]), axis=1, dtype=np.uint8) \
             if fm['r'] and fm['g'] and fm['b'] \
             else np.zeros(shape=(header.point_count, 3), dtype=self.color_default_dtype)
 
+        x = 0
+
     # https://pypi.org/project/pye57/
     def write_e57(self, filename: str):
-        e57 = pye57.E57(filename, mode="w")
+        e57_object = pye57.E57(filename, mode="w")
 
         raw_data = dict()
         raw_data["cartesianX"] = self.points[:, 0]
@@ -50,26 +143,12 @@ class PointCloud:
         raw_data["intensity"] = self.intensities
 
         # e57 expects the color data to be ints between 0 and 255 (incl.)
-
-        # If we have float RGB data, we expect it to be in [0,1]
-        if np.issubdtype(self.colors.dtype, np.floating):
-            max_value = np.iinfo(np.uint8).max
-            self.colors = (self.colors * max_value).astype(np.uint8)
-
-        # Convert the color types to the right format.
-        if np.issubdtype(self.colors.dtype, np.integer) and self.colors.dtype != np.dtype(np.uint8):
-            current_max = np.iinfo(self.colors.dtype).max + 1
-            target_max = np.iinfo(np.uint8).max + 1
-            if current_max > target_max:
-                self.colors = (self.colors / (current_max / target_max)).astype(np.uint8)
-            else:
-                self.colors = (self.colors * (target_max / current_max)).astype(np.uint8)
-
+        self.colors = convert_to_type_incl_scaling(self.colors, np.uint8, True)
         raw_data["colorRed"] = self.colors[:, 0]
         raw_data["colorGreen"] = self.colors[:, 1]
         raw_data["colorBlue"] = self.colors[:, 2]
 
-        e57.write_scan_raw(raw_data)
+        e57_object.write_scan_raw(raw_data)
 
     # https://github.com/laspy/laspy/blob/740153c7b75abbea240d0b18a07f03038469f1fd/docs/complete_tutorial.rst#L76
     def read_las(self, filename: str):
@@ -106,27 +185,31 @@ class PointCloud:
         point_format = 3
         header = laspy.LasHeader(point_format=point_format)
 
-        header.offsets = np.min(self.points, axis=0)
-        header.scales = np.max(self.points - header.offsets, axis=0) / np.iinfo(np.int32).max
-        las = laspy.LasData(header=header)
+        if np.issubdtype(self.points.dtype, np.integer):
+            header.offsets = np.array([0.0, 0.0, 0.0])
+            header.scales = np.array([1.0, 1.0, 1.0])
+            self.points = convert_type_integers_incl_scaling(self.points, np.int32)
 
-        # TODO properly write the data. We cannot handle fractional values well.
+        elif np.issubdtype(self.points.dtype, np.floating):
+            # TODO, this does not work!
+            header.offsets = np.min(self.points, axis=0)
+            header.scales = np.max(self.points - header.offsets, axis=0) / np.iinfo(np.int32).max
+            scaling_factor = np.iinfo(np.int32).max / max_value_for_type(self.points.dtype)
+            self.points = (self.points * scaling_factor).astype(np.int32)
+
+        las = laspy.LasData(header)
         las.x = self.points[:, 0]
         las.y = self.points[:, 1]
         las.z = self.points[:, 2]
 
-        int16_max = np.iinfo(np.uint16).max
+        # Intensity and color is always unsigned 16bit with las, meaning the max value is 65535
+        las.intensity = convert_to_type_incl_scaling(self.intensities, np.dtype(np.uint16), False)
 
-        # Intensity is always unsigned 16bit with las, meaning the max value is 65535
-        las.intensity = self.intensities.astype(np.uint16)
-
-        # TODO writing fix this based on type
-        if self.colors is not None:
-            # Like intensity, colors are unsigned 16bit, so we need to normalize to [0-65536]
-            las.red = (self.colors[:, 0] * int16_max).astype(np.uint16)
-            las.green = (self.colors[:, 1] * int16_max).astype(np.uint16)
-            las.blue = (self.colors[:, 2] * int16_max).astype(np.uint16)
-
+        self.colors = convert_to_type_incl_scaling(self.colors, np.dtype(np.uint16), True)
+        las.red = self.colors[:, 0]
+        las.green = self.colors[:, 1]
+        las.blue = self.colors[:, 2]
+        las.header = header
         las.write(filename)
 
     def read_ply(self, filename: str):
@@ -200,26 +283,3 @@ class PointCloud:
         el.data = data
         PlyData([el]).write(filename)
 
-    def map_field_names(self, from_field_names: list[str]) -> dict:
-        mapping = {'x': None, 'y': None, 'z': None, 'r': None, 'g': None, 'b': None, 'intensity': None}
-
-        for field_name in from_field_names:
-            field_name_lowered: str = field_name.lower()
-            if mapping['x'] is None and "x" in field_name_lowered:
-                mapping['x'] = field_name
-            elif mapping['y'] is None and "y" in field_name_lowered:
-                mapping['y'] = field_name
-            elif mapping['z'] is None and "z" in field_name_lowered:
-                mapping['z'] = field_name
-            elif mapping['r'] is None and (field_name_lowered == "r" or "red" in field_name_lowered):
-                mapping['r'] = field_name
-            elif mapping['g'] is None and (field_name_lowered == "g" or "green" in field_name_lowered):
-                mapping['g'] = field_name
-            elif mapping['b'] is None and (field_name_lowered == "b" or "blue" in field_name_lowered):
-                mapping['b'] = field_name
-
-            # Get both 'intensity' and 'intensities'
-            elif mapping['intensity'] is None and "intensit" in field_name_lowered:
-                mapping['intensity'] = field_name
-
-        return mapping
