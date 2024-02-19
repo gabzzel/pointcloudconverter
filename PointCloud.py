@@ -54,9 +54,20 @@ class PointCloud:
         # If we have float RGB data, we expect it to be in [0,1]
         if np.issubdtype(self.colors.dtype, np.floating):
             max_value = np.iinfo(np.uint8).max
-            raw_data["colorRed"] = (self.colors[:, 0] * max_value).astype(np.uint8)
-            raw_data["colorGreen"] = (self.colors[:, 1] * max_value).astype(np.uint8)
-            raw_data["colorBlue"] = (self.colors[:, 2] * max_value).astype(np.uint8)
+            self.colors = (self.colors * max_value).astype(np.uint8)
+
+        # Convert the color types to the right format.
+        if np.issubdtype(self.colors.dtype, np.integer) and self.colors.dtype != np.dtype(np.uint8):
+            current_max = np.iinfo(self.colors.dtype).max + 1
+            target_max = np.iinfo(np.uint8).max + 1
+            if current_max > target_max:
+                self.colors = (self.colors / (current_max / target_max)).astype(np.uint8)
+            else:
+                self.colors = (self.colors * (target_max / current_max)).astype(np.uint8)
+
+        raw_data["colorRed"] = self.colors[:, 0]
+        raw_data["colorGreen"] = self.colors[:, 1]
+        raw_data["colorBlue"] = self.colors[:, 2]
 
         e57.write_scan_raw(raw_data)
 
