@@ -1,14 +1,16 @@
+import numpy
 import numpy as np
 import pye57  # https://pypi.org/project/pye57/
 import laspy  # https://pypi.org/project/laspy/
 import plyfile  # https://pypi.org/project/plyfile/ and https://python-plyfile.readthedocs.io/en/latest/index.html
 from plyfile import PlyData
 
+
 class PointCloud:
     def __init__(self):
         self.points: np.ndarray = None
-        self.intensities: np.ndarray = None
-        self.colors: np.ndarray = None
+        self.intensities: np.ndarray = None  # Default type is np.float32
+        self.colors: np.ndarray = None  # Default type is np.uint8
 
     # https://pypi.org/project/pye57/
     def read_e57(self, filename: str):
@@ -56,31 +58,29 @@ class PointCloud:
         las = laspy.read(filename)
 
         has_rgb = 0
-        rgb_normalization_factor = 1.0
-        has_intensities = False
+        intensities_name = None
         for dimension in las.point_format.dimensions:
             n = dimension.name.lower()
-            if n == "red" or n == "green" or n == "blue":
+            if n == "red" or n == "r" or n == "green" or n == "g" or n == "blue" or n == "b":
                 has_rgb += 1
-                rgb_normalization_factor = float(dimension.max)
             if n == "intensity" or n == "intensities":
-                has_intensities = True
+                intensities_name = dimension.name
 
-        point_count = int(las.header.point_count)
+        # We can directly assign this, since the getter returns a new array
+        self.points = las.xyz.astype(dtype=np.float32)
 
-        # TODO read the scaling value so we can convert correctly
-        self.points = las.xyz  # We can directly assign this, since the getter returns a new array
-
-        if has_rgb:
+        if has_rgb == 3:
             r = np.array(las.red)
             g = np.array(las.green)
             b = np.array(las.blue)
-            self.colors = np.stack((r, g, b), axis=1).astype(np.float64)
-            if rgb_normalization_factor != 1.0:  # Make sure to normalize the colors to a [0-1] range.
-                self.colors /= rgb_normalization_factor
+            self.colors = np.stack((r, g, b), axis=1)
+        else:
+            self.colors = np.zeros_like(self.points, dtype=np.uint8)
 
-        if has_intensities:
-            self.intensities = np.array(las.intensity)
+        if intensities_name is not None:
+            self.intensities = np.array(las[intensities_name])
+        else:
+            self.intensities = np.zeros(shape=(len(self.points), ), dtype=np.float32)
 
     def write_las(self, filename: str):
         point_format = 3
@@ -97,12 +97,10 @@ class PointCloud:
 
         int16_max = np.iinfo(np.uint16).max
 
-        if self.intensities is not None:
-            # Intensity is always unsigned 16bit with las, meaning the max value is 65535
-            las.intensity = (self.intensities * int16_max).astype(np.uint16)
-        else:
-            las.intensity = np.zeros(shape=(len(self.points),), dtype=np.uint16)
+        # Intensity is always unsigned 16bit with las, meaning the max value is 65535
+        las.intensity = self.intensities.astype(np.uint16)
 
+        # TODO writing fix this based on type
         if self.colors is not None:
             # Like intensity, colors are unsigned 16bit, so we need to normalize to [0-65536]
             las.red = (self.colors[:, 0] * int16_max).astype(np.uint16)
@@ -114,37 +112,70 @@ class PointCloud:
     def read_ply(self, filename: str):
         ply: plyfile.PlyElement = PlyData.read(filename).elements[0]
 
-        number_of_points = ply.data.shape[0]
-
-        self.points = np.zeros(shape=(number_of_points, 3), dtype=np.float64)
-        self.colors = np.zeros(shape=(number_of_points, 3), dtype=np.float64)
-        self.intensities = np.zeros(shape=(number_of_points, ), dtype=np.float64)
-
-        color_format = np.float32
-        intensities_format = np.float32
+        x = None
+        y = None
+        z = None
+        r = None
+        g = None
+        b = None
 
         for prop in ply.properties:
             pn = prop.name.lower()
 
             if pn == 'x':
-                self.points[:, 0] = ply[prop.name]
+                x = ply[prop.name]
             elif pn == 'y':
-                self.points[:, 1] = ply[prop.name]
+                y = ply[prop.name]
             elif pn == 'z':
-                self.points[:, 2] = ply[prop.name]
+                z = ply[prop.name]
             elif pn == 'r' or pn == 'red':
-                self.colors[:, 0] = ply[prop.name]
-                color_format = prop.dtype()
+                r = ply[prop.name]
             elif pn == 'g' or pn == 'green':
-                self.colors[:, 1] = ply[prop.name]
+                g = ply[prop.name]
             elif pn == 'b' or pn == 'blue':
-                self.colors[:, 2] = ply[prop.name]
+                b = ply[prop.name]
             elif 'intensity' in pn or "intensities" in pn:
                 self.intensities = np.array(ply[prop.name])
-                intensities_format = prop.dtype()
 
-        # Normalize colors and intensities
-        if np.max(self.colors) > 0.0 and np.issubdtype(color_format, np.integer):
-            self.colors /= np.iinfo(color_format).max
-        if np.max(self.intensities) > 0.0 and np.issubdtype(intensities_format, np.integer):
-            self.intensities /= np.iinfo(intensities_format).max
+        self.points = np.stack((x, y, z), axis=1)
+
+        if r is not None and g is not None and b is not None:
+            self.colors = np.stack((r, g, b), axis=1)
+        else:
+            self.colors = np.zeros_like(self.points, dtype=np.uint8)
+
+        if self.intensities is None:
+            self.intensities = np.zeros(shape=(len(self.points), ), dtype=np.float32)
+
+    # https://python-plyfile.readthedocs.io/en/latest/usage.html#creating-a-ply-file
+    def write_ply(self, filename: str):
+
+        point_type = self.points.dtype.name
+        color_type = self.colors.dtype.name
+        intensity_type = self.intensities.dtype.name
+
+        properties = [
+            plyfile.PlyProperty('x', point_type),
+            plyfile.PlyProperty('y', point_type),
+            plyfile.PlyProperty('z', point_type),
+            plyfile.PlyProperty('red', color_type),
+            plyfile.PlyProperty('green', color_type),
+            plyfile.PlyProperty('blue', color_type),
+            plyfile.PlyProperty('scalar_Intensity', intensity_type)
+        ]
+
+        el = plyfile.PlyElement(name="points", properties=properties, count=str(len(self.points)))
+        dtype_list = [('x', point_type), ('y', point_type), ('z', point_type),
+                      ('red', color_type), ('green', color_type), ('blue', color_type),
+                      ('scalar_Intensity', intensity_type)]
+
+        data = np.empty(shape=(len(self.points),), dtype=dtype_list)
+        data['x'] = self.points[:, 0]
+        data['y'] = self.points[:, 1]
+        data['z'] = self.points[:, 2]
+        data['red'] = self.colors[:, 0]
+        data['green'] = self.colors[:, 1]
+        data['blue'] = self.colors[:, 2]
+        data['scalar_Intensity'] = self.intensities
+        el.data = data
+        PlyData([el]).write(filename)
