@@ -1,7 +1,8 @@
 import numpy as np
 import pye57  # https://pypi.org/project/pye57/
 import laspy  # https://pypi.org/project/laspy/
-
+import plyfile  # https://pypi.org/project/plyfile/ and https://python-plyfile.readthedocs.io/en/latest/index.html
+from plyfile import PlyData
 
 class PointCloud:
     def __init__(self):
@@ -109,3 +110,41 @@ class PointCloud:
             las.blue = (self.colors[:, 2] * int16_max).astype(np.uint16)
 
         las.write(filename)
+
+    def read_ply(self, filename: str):
+        ply: plyfile.PlyElement = PlyData.read(filename).elements[0]
+
+        number_of_points = ply.data.shape[0]
+
+        self.points = np.zeros(shape=(number_of_points, 3), dtype=np.float64)
+        self.colors = np.zeros(shape=(number_of_points, 3), dtype=np.float64)
+        self.intensities = np.zeros(shape=(number_of_points, ), dtype=np.float64)
+
+        color_format = np.float32
+        intensities_format = np.float32
+
+        for prop in ply.properties:
+            pn = prop.name.lower()
+
+            if pn == 'x':
+                self.points[:, 0] = ply[prop.name]
+            elif pn == 'y':
+                self.points[:, 1] = ply[prop.name]
+            elif pn == 'z':
+                self.points[:, 2] = ply[prop.name]
+            elif pn == 'r' or pn == 'red':
+                self.colors[:, 0] = ply[prop.name]
+                color_format = prop.dtype()
+            elif pn == 'g' or pn == 'green':
+                self.colors[:, 1] = ply[prop.name]
+            elif pn == 'b' or pn == 'blue':
+                self.colors[:, 2] = ply[prop.name]
+            elif 'intensity' in pn or "intensities" in pn:
+                self.intensities = np.array(ply[prop.name])
+                intensities_format = prop.dtype()
+
+        # Normalize colors and intensities
+        if np.max(self.colors) > 0.0 and np.issubdtype(color_format, np.integer):
+            self.colors /= np.iinfo(color_format).max
+        if np.max(self.intensities) > 0.0 and np.issubdtype(intensities_format, np.integer):
+            self.intensities /= np.iinfo(intensities_format).max

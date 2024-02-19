@@ -52,17 +52,9 @@ def parse_args(valid_extensions, raw_args=None):
 
 
 def execute(raw_args):
-    readers_dict = {
-        ".las": "readers.las",
-        ".ply": "readers.ply",
-        ".e57": "readers.e57",
-        ".pts": "readers.pts",
-        ".pcd": "readers.pcd"
-    }
 
-    valid_extensions = list(readers_dict.keys())
-
-    args = parse_args(valid_extensions, raw_args)
+    extensions = [".las", ".ply", ".e57", ".pts", ".pcd"]
+    args = parse_args(extensions, raw_args)
     if args is None:
         return
 
@@ -70,20 +62,30 @@ def execute(raw_args):
 
     point_cloud = PointCloud()
 
-    if read_extension == ".e57":
-        point_cloud.read_e57(str(read_path))
-    elif read_extension == ".las":
-        point_cloud.read_las(str(read_path))
+    readers = {
+        ".las": point_cloud.read_las,
+        ".ply": point_cloud.read_ply,
+        ".e57": point_cloud.read_e57
+        # ".pts": "readers.pts",
+        # ".pcd": "readers.pcd"
+    }
+    writers = {
+        ".las": point_cloud.write_las,
+        # ".ply": point_cloud.write_ply,
+        ".e57": point_cloud.write_e57
+    }
 
-    if write_extension == ".e57":
-        point_cloud.write_e57(str(write_path))
-    elif write_extension == ".las":
-        point_cloud.write_las(str(write_path))
+    if read_extension in readers:
+        start_time = time.time()
+        readers[read_extension](str(read_path))
+        elapsed = round(time.time() - start_time, 3)
+        print(f"Successfully read file {read_path} [{elapsed}s]")
 
-    print(args)
-
-
-
+    if write_extension in writers:
+        start_time = time.time()
+        writers[write_extension](str(write_path))
+        elapsed = round(time.time() - start_time, 3)
+        print(f"Written file {write_path} [{elapsed}s]")
 
 
 if __name__ == '__main__':
@@ -91,4 +93,4 @@ if __name__ == '__main__':
         execute(sys.argv[1:])
     else:
         print("No arguments given.")
-        time.sleep(10)
+        time.sleep(5)
