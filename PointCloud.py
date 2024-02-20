@@ -1,13 +1,11 @@
 import sys
 
-import numpy
 import numpy as np
 import pye57  # https://pypi.org/project/pye57/
 import laspy  # https://pypi.org/project/laspy/
 import plyfile  # https://pypi.org/project/plyfile/ and https://python-plyfile.readthedocs.io/en/latest/index.html
 from plyfile import PlyData
-from pye57 import e57
-
+from tqdm import tqdm
 
 def max_value_for_type(data_type):
     if np.issubdtype(data_type, np.integer):
@@ -50,7 +48,8 @@ def convert_to_type_incl_scaling(array: np.ndarray, target_type: np.dtype, float
     # We are dealing with an integer that needs to be converted to a float.
     elif np.issubdtype(array.dtype, np.integer) and np.issubdtype(target_type, np.floating):
         as_float64 = array.astype(dtype=np.float64)  # Make sure we can handle the dividing
-        return (as_float64 / max_value_for_type(array.dtype) * np.finfo(target_type)).astype(target_type)
+        scaling = 1.0 if float_max_is_1 else np.finfo(target_type).max
+        return (as_float64 / max_value_for_type(array.dtype) * scaling).astype(target_type)
 
 
 def convert_type_integers_incl_scaling(array, target_type):
@@ -132,8 +131,6 @@ class PointCloud:
         self.colors = np.stack((data[fm['r']], data[fm['g']], data[fm['b']]), axis=1, dtype=np.uint8) \
             if fm['r'] and fm['g'] and fm['b'] \
             else np.zeros(shape=(header.point_count, 3), dtype=self.color_default_dtype)
-
-        x = 0
 
     # https://pypi.org/project/pye57/
     def write_e57(self, filename: str):
@@ -295,6 +292,35 @@ class PointCloud:
         self.intensities = data['intensity']
         self.colors = np.stack((data['r'], data['g'], data['b']), axis=1)
 
+    def write_pts(self, filename: str):
+        # Make sure the colors are the correct format.
+        if np.issubdtype(self.colors.dtype, np.integer) and self.colors.dtype != np.dtype(np.uint8):
+            self.colors = convert_type_integers_incl_scaling(self.colors, np.dtype(np.uint8))
+        elif np.issubdtype(self.colors.dtype, np.floating) and self.colors.dtype != np.dtype(np.float32):
+            self.colors = self.colors.astype(np.float32)
+
+        self.intensities = convert_to_type_incl_scaling(self.intensities, np.dtype(np.float32), True)
+
+        dtypes = [
+            ('x', self.points.dtype), ('y', self.points.dtype), ('z', self.points.dtype),
+            ('intensity', self.intensities.dtype),
+            ('r', self.colors.dtype), ('g', self.colors.dtype), ('b', self.colors.dtype)
+        ]
+
+        float_addition = 'f' if np.issubdtype(self.colors.dtype, np.floating) else ''
+        header = f"X Y Z Intensity R{float_addition} G{float_addition} B{float_addition}\n"
+
+        with open(filename, mode='w') as f:
+            f.write(header)
+            f.write(f"{len(self.points)}\n")
+
+            for i in tqdm(range(len(self.points)), unit="points",leave=True,desc="Writing .pts file..."):
+                f.write(
+                    " ".join((str(self.points[i][0]), str(self.points[i][1]), str(self.points[i][2]),
+                              str(self.intensities[i]),
+                              str(self.colors[i][0]), str(self.colors[i][1]), str(self.colors[i][2])))
+                )
+                f.write("\n")
 
     def get_skip_lines_pts(self, filename: str):
         to_skip = 0

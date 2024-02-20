@@ -73,7 +73,8 @@ def execute(raw_args):
     writers = {
         ".las": point_cloud.write_las,
         ".ply": point_cloud.write_ply,
-        ".e57": point_cloud.write_e57
+        ".e57": point_cloud.write_e57,
+        ".pts": point_cloud.write_pts
     }
 
     if read_extension in readers:
