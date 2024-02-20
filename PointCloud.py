@@ -101,12 +101,16 @@ class PointCloud:
     def __init__(self):
         self.points_default_dtype = np.dtype(np.float32)
         self.points: np.ndarray = None
+        # self.offsets: np.ndarray = None
+        # self.scales: np.ndarray = None
 
         self.intensities_default_dtype = np.dtype(np.float32)
         self.intensities: np.ndarray = None  # Default type is np.float32
 
         self.color_default_dtype = np.dtype(np.uint8)
         self.colors: np.ndarray = None  # Default type is np.uint8
+
+
 
     # https://pypi.org/project/pye57/
     def read_e57(self, filename: str):
@@ -153,33 +157,19 @@ class PointCloud:
     # https://github.com/laspy/laspy/blob/740153c7b75abbea240d0b18a07f03038469f1fd/docs/complete_tutorial.rst#L76
     def read_las(self, filename: str):
         las = laspy.read(filename)
-
-        has_rgb = 0
-        intensities_name = None
-        for dimension in las.point_format.dimensions:
-            n = dimension.name.lower()
-            if n == "red" or n == "r" or n == "green" or n == "g" or n == "blue" or n == "b":
-                has_rgb += 1
-            if n == "intensity" or n == "intensities":
-                intensities_name = dimension.name
+        fn = map_field_names([dimension.name for dimension in las.point_format.dimensions])
 
         # We can directly assign this, since the getter returns a new array
+        # TODO get scales and offsets.
         self.points = las.xyz.astype(dtype=np.float32)
 
-        if has_rgb == 3:
-            r = np.array(las.red)
-            g = np.array(las.green)
-            b = np.array(las.blue)
-            self.colors = np.stack((r, g, b), axis=1)
-        else:
-            self.colors = np.zeros_like(self.points, dtype=self.color_default_dtype)
+        self.colors = np.stack((np.array(las[fn['r']]), np.array(las[fn['g']]), np.array(las[fn['b']])), axis=1) \
+            if 'r' in fn and 'g' in fn and 'b' in fn \
+            else np.zeros_like(self.points, dtype=self.color_default_dtype)
 
-        if intensities_name is not None:
-            self.intensities = np.array(las[intensities_name])
-        else:
-            self.intensities = np.zeros(shape=(len(self.points),), dtype=self.intensities_default_dtype)
-
-        x = 0
+        self.intensities = np.array(las[fn['intensity']]) \
+            if 'intensity' in fn \
+            else np.zeros(shape=(len(self.points),), dtype=self.intensities_default_dtype)
 
     def write_las(self, filename: str):
         point_format = 3
@@ -191,7 +181,6 @@ class PointCloud:
             self.points = convert_type_integers_incl_scaling(self.points, np.int32)
 
         elif np.issubdtype(self.points.dtype, np.floating):
-            # TODO, this does not work!
             header.offsets = np.min(self.points, axis=0)
             header.scales = np.max(self.points - header.offsets, axis=0) / np.iinfo(np.int32).max
 
