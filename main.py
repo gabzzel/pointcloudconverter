@@ -1,13 +1,11 @@
-import logging
 import os
 import subprocess
-from argparse import ArgumentParser
 import sys
-from pathlib import Path
 import time
-import pye57
+from pathlib import Path
 
 import PointCloud
+import io_utils
 
 
 def parse_args(valid_extensions, raw_args=None):
@@ -72,8 +70,8 @@ def execute(raw_args):
         ".laz": point_cloud.read_las,
         ".ply": point_cloud.read_ply,
         ".e57": point_cloud.read_e57,
-        ".pts": point_cloud.read_pts
-        # ".pcd": "readers.pcd"
+        ".pts": point_cloud.read_pts,
+        ".pcd": point_cloud.read_pcd
     }
     writers = {
         ".las": point_cloud.write_las,
@@ -84,11 +82,11 @@ def execute(raw_args):
 
     # Special case where we can directly call the Potree converter
     if (read_extension == ".las" or read_extension == ".laz") and write_extension == "potree":
-        ptc = PointCloud.find_potreeconverter(sys.argv[0])
+        ptc = io_utils.find_potreeconverter(sys.argv[0])
         if ptc is None:
             print(f"Could not find potree converter! Cancelling.")
             return
-        subprocess.run([str(ptc), read_path, "-o", write_path])
+        subprocess.run([str(ptc), read_path, "-o", write_path], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
         print(f"Used potree converter at {ptc} for convert {read_path} to potree.")
         return
 
@@ -124,7 +122,10 @@ def execute(raw_args):
 
 if __name__ == '__main__':
     if len(sys.argv) > 1:
+        start_time = time.time()
         execute(sys.argv[1:])
+        elapsed = round(time.time() - start_time, 3)
+        print("Finished in ", elapsed, " seconds.")
     else:
         print("No arguments given.")
         time.sleep(5)

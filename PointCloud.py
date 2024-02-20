@@ -1,166 +1,19 @@
 import os
-import sys
 import tempfile
-from typing import Optional, Any
+from typing import Optional
 
 import numpy as np
 import pye57  # https://pypi.org/project/pye57/
 import laspy  # https://pypi.org/project/laspy/
 import plyfile  # https://pypi.org/project/plyfile/ and https://python-plyfile.readthedocs.io/en/latest/index.html
 from plyfile import PlyData
+import pypcd4
 from tqdm import tqdm
-from pathlib import Path
 import subprocess
 
-
-def max_value_for_type(data_type):
-    if np.issubdtype(data_type, np.integer):
-        if isinstance(data_type, np.dtype):
-            return np.iinfo(data_type).max
-        elif data_type == int:
-            return sys.maxsize
-    elif np.issubdtype(data_type, np.floating):
-        if isinstance(data_type, np.dtype):
-            return np.finfo(data_type).max
-        elif data_type == float:
-            return sys.float_info.max
-    else:
-        raise ValueError("Unsupported data type")
-
-
-def convert_to_type_incl_scaling(array: np.ndarray, target_type: np.dtype, float_max_is_1: bool):
-    """ If max value is None, the max value is inferred from the types. Else, this max value is used."""
-
-    # We don't have to do anything
-    if array.dtype == target_type:
-        return array
-
-    if np.issubdtype(array.dtype, np.floating) and np.issubdtype(target_type, np.floating):
-        return convert_type_floats_incl_scaling(array, target_type)
-
-    elif np.issubdtype(array.dtype, np.integer) and np.issubdtype(target_type, np.integer):
-        return convert_type_integers_incl_scaling(array, target_type)
-
-    # If we are currently dealing with a float, but we need to convert to integer...
-    elif np.issubdtype(array.dtype, np.floating) and np.issubdtype(target_type, np.integer):
-        # If we can assume the values are between 0 and 1, we can just multiply by the max value and return.
-        if float_max_is_1:
-            return (array * max_value_for_type(target_type)).astype(dtype=target_type)
-        # If we cannot assume the values are between 0 and 1, we have to make sure we divide by the max first.
-        else:
-            max_value = max_value_for_type(array.dtype)
-            return (array / max_value * max_value_for_type(target_type)).astype(dtype=target_type)
-
-    # We are dealing with an integer that needs to be converted to a float.
-    elif np.issubdtype(array.dtype, np.integer) and np.issubdtype(target_type, np.floating):
-        as_float64 = array.astype(dtype=np.float64)  # Make sure we can handle the dividing
-        scaling = 1.0 if float_max_is_1 else np.finfo(target_type).max
-        return (as_float64 / max_value_for_type(array.dtype) * scaling).astype(target_type)
-
-
-def convert_type_integers_incl_scaling(array, target_type):
-    # We are dealing with a signed integer array to unsigned one.
-    if np.iinfo(array.dtype).min < 0 and np.iinfo(target_type).min == 0:
-        print(f"Warning! The original array possibly contains negative values. The signs will not be preserved "
-              f"when converting to the new target type {target_type}.")
-
-    current_max = np.iinfo(array.dtype).max + 1
-    target_max = np.iinfo(target_type).max + 1
-    if current_max > target_max:  # If we need to scale down, make sure we divide by a whole number.
-        return (array / (current_max / target_max)).astype(dtype=target_type)
-    else:  # If we need to scale up, target is higher than current, so we increase
-        return (array * (target_max / current_max)).astype(dtype=target_type)
-
-
-def convert_type_floats_incl_scaling(array, target_type):
-    current_max_value = np.finfo(array.dtype).max
-    target_max_value = np.finfo(target_type).max
-    # First divide by the max value and then multiply by new max value, not the other way around to prevent overflow!
-    return (array / current_max_value) * target_max_value.astype(dtype=target_type)
-
-
-def map_field_names(from_field_names: list[str]) -> dict:
-    mapping = {'x': None, 'y': None, 'z': None, 'r': None, 'g': None, 'b': None, 'intensity': None}
-
-    for field_name in from_field_names:
-        field_name_lowered: str = field_name.lower()
-        if mapping['x'] is None and "x" in field_name_lowered:
-            mapping['x'] = field_name
-        elif mapping['y'] is None and "y" in field_name_lowered:
-            mapping['y'] = field_name
-        elif mapping['z'] is None and "z" in field_name_lowered:
-            mapping['z'] = field_name
-        elif mapping['r'] is None and (field_name_lowered == "r" or "red" in field_name_lowered):
-            mapping['r'] = field_name
-        elif mapping['g'] is None and (field_name_lowered == "g" or "green" in field_name_lowered):
-            mapping['g'] = field_name
-        elif mapping['b'] is None and (field_name_lowered == "b" or "blue" in field_name_lowered):
-            mapping['b'] = field_name
-
-        # Get both 'intensity' and 'intensities'
-        elif mapping['intensity'] is None and "intensit" in field_name_lowered:
-            mapping['intensity'] = field_name
-
-    return mapping
-
-
-def get_skip_lines_pts(filename: str):
-    to_skip = 0
-    with open(filename, 'rb') as f:
-        for line in f:
-            candidate_header = line.strip().lower()
-            # We have encountered a header line containing the names of the columns,
-            # or the line indicating the number of points
-            if candidate_header.startswith(b"//") or candidate_header.isdigit():
-                to_skip += 1
-            # If we encounter a space in a line, and it's not a comment, we can continue reading the file.
-            elif b' ' in candidate_header:
-                return to_skip
-    return to_skip
-
-
-def find_file_in_directory(file_name, directory):
-    p = directory if type(directory) is Path else Path(directory)
-    if not p.exists() or not p.is_dir():
-        return None
-
-    # Walk through all files. If we find one that (when lowered) equals what we are looking for, return it!
-    for (root, dirs, files) in os.walk(Path(directory)):
-        files_lowered = [Path(str(os.path.join(root, file_path))).name.lower() for file_path in files]
-        for index, file_name_lowered in enumerate(files_lowered):
-            if file_name_lowered == file_name.lower():
-                return Path(str(os.path.join(root, files[index])))
-    return None
-
-
-def find_potreeconverter(current_file: str, ptc_path: Optional[str] = None):
-    # If a Potree Converter executable path is specified...
-    if ptc_path is not None:
-        p = Path(ptc_path)
-        if not p.exists():  # If this path does not exist, just do nothing.
-            print(f"Path {ptc_path} is not valid.")
-            return None
-        elif p.is_dir():
-            potreeconverter_path = find_file_in_directory("potreeconverter.exe", p)
-            if potreeconverter_path is None:
-                print(f"Could not find potreeconverter in {p} or any of its subdirectories.")
-            else:
-                return potreeconverter_path
-        elif p.is_file() and p.name.lower() == "potreeconverter.exe":
-            return p
-
-    # We did not get a Potree converter path specified. We need to look ourselves.
-    else:
-        p = Path(current_file)
-        if not p.exists() or not p.is_file():
-            print(f"The given file {p} is invalid!")
-            return None
-        potree_path = find_file_in_directory("potreeconverter.exe", p.parent)
-        if potree_path is None:
-            print(f"Could not find potreeconverter in {p.parent} or any of its subdirectories.")
-            return None
-        return potree_path
-    return None
+import util
+from io_utils import find_potreeconverter, convert_type_integers_incl_scaling, get_skip_lines_pts
+from util import convert_to_type_incl_scaling, map_field_names
 
 
 class PointCloud:
@@ -252,7 +105,12 @@ class PointCloud:
             header.scales = np.max(self.points - header.offsets, axis=0) / np.iinfo(np.int32).max
 
         las = laspy.LasData(header)
-        las.xyz = self.points
+        max_allowed = np.iinfo(np.int32).max * header.scales + header.offsets
+        min_allowed = np.iinfo(np.int32).min * header.scales + header.offsets
+
+        las.x = np.clip(self.points[:, 0], min_allowed[0], max_allowed[0])
+        las.y = np.clip(self.points[:, 1], min_allowed[1], max_allowed[1])
+        las.z = np.clip(self.points[:, 2], min_allowed[2], max_allowed[2])
 
         # Intensity and color is always unsigned 16bit with las, meaning the max value is 65535
         las.intensity = convert_to_type_incl_scaling(self.intensities, np.dtype(np.uint16), False)
@@ -406,6 +264,31 @@ class PointCloud:
         tempdir = tempfile.gettempdir()
         temp_las_file = str(os.path.join(tempdir, "templas.las"))
         self.write_las(temp_las_file)
-        subprocess.run([str(potree_exe), temp_las_file, "-o", target_directory])
+        subprocess.run([str(potree_exe), temp_las_file, "-o", target_directory], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
         os.remove(temp_las_file)
         return True
+
+    def read_pcd(self, filename: str):
+        pc: pypcd4.PointCloud = pypcd4.PointCloud.from_path(filename)
+        fn = util.map_field_names(pc.fields)
+
+        if fn['x'] is not None and fn['y'] is not None and fn['z'] is not None:
+            x = np.squeeze(pc.numpy(fields=fn['x']))
+            y = np.squeeze(pc.numpy(fields=fn['y']))
+            z = np.squeeze(pc.numpy(fields=fn['z']))
+            self.points = np.stack((x, y, z), axis=1)
+        else:
+            self.points = np.zeros(shape=(pc.points, 3), dtype=np.float32)
+
+        if fn['r'] is not None and fn['g'] is not None and fn['b'] is not None:
+            r = np.squeeze(pc.numpy(fields=fn['r']))
+            g = np.squeeze(pc.numpy(fields=fn['g']))
+            b = np.squeeze(pc.numpy(fields=fn['b']))
+            self.colors = np.stack((r, g, b), axis=1)
+        elif 'rgb' in pc.fields:
+            self.colors = pc.decode_rgb(pc.numpy(fields=['rgb']))
+        else:
+            self.colors = np.zeros_like(self.points, dtype=self.color_default_dtype)
+
+        if fn['intensity'] is not None:
+            self.intensities = np.squeeze(pc.numpy(fields=[fn['intensity']]))
