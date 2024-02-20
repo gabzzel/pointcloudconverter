@@ -8,6 +8,7 @@ import plyfile  # https://pypi.org/project/plyfile/ and https://python-plyfile.r
 from plyfile import PlyData
 from pye57 import e57
 
+
 def max_value_for_type(data_type):
     if np.issubdtype(data_type, np.integer):
         if isinstance(data_type, np.dtype):
@@ -21,6 +22,7 @@ def max_value_for_type(data_type):
             return sys.float_info.max
     else:
         raise ValueError("Unsupported data type")
+
 
 def convert_to_type_incl_scaling(array: np.ndarray, target_type: np.dtype, float_max_is_1: bool):
     """ If max value is None, the max value is inferred from the types. Else, this max value is used."""
@@ -109,8 +111,6 @@ class PointCloud:
 
         self.color_default_dtype = np.dtype(np.uint8)
         self.colors: np.ndarray = None  # Default type is np.uint8
-
-
 
     # https://pypi.org/project/pye57/
     def read_e57(self, filename: str):
@@ -267,3 +267,45 @@ class PointCloud:
         el.data = data
         PlyData([el]).write(filename)
 
+    # http://www.paulbourke.net/dataformats/pts/
+    def read_pts(self, filename: str):
+
+        dtype_list = [
+            ('x', np.dtype(np.float32)), ('y', np.dtype(np.float32)), ('z', np.dtype(np.float32)),
+            ('intensity', np.dtype(np.float32)),
+            ('r', np.dtype(np.uint8)), ('g', np.dtype(np.uint8)), ('b', np.dtype(np.uint8))
+        ]
+
+        skip_lines = self.get_skip_lines_pts(filename)
+        with open(filename, mode='rb') as f:
+
+            # Skip the header and comments
+            for i in range(skip_lines):
+                f.readline()
+
+            # Read a sample and extract the required types
+            sample = f.readline().split(b' ')
+            for index, sample_element in enumerate(sample):
+                sample_element = sample_element.strip()
+                n = dtype_list[index][0]
+                dtype_list[index] = (n, np.dtype(np.uint8)) if sample_element.isdigit() else (n, np.dtype(np.float32))
+
+        data = np.loadtxt(fname=filename, dtype=dtype_list, comments="//", delimiter=' ', skiprows=skip_lines)
+        self.points = np.stack((data['x'], data['y'], data['z']), axis=1)
+        self.intensities = data['intensity']
+        self.colors = np.stack((data['r'], data['g'], data['b']), axis=1)
+
+
+    def get_skip_lines_pts(self, filename: str):
+        to_skip = 0
+        with open(filename, 'rb') as f:
+            for line in f:
+                candidate_header = line.strip().lower()
+                # We have encountered a header line containing the names of the columns,
+                # or the line indicating the number of points
+                if candidate_header.startswith(b"//") or candidate_header.isdigit():
+                    to_skip += 1
+                # If we encounter a space in a line, and it's not a comment, we can continue reading the file.
+                elif b' ' in candidate_header:
+                    return to_skip
+        return to_skip

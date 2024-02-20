@@ -66,8 +66,8 @@ def execute(raw_args):
         ".las": point_cloud.read_las,
         ".laz": point_cloud.read_las,
         ".ply": point_cloud.read_ply,
-        ".e57": point_cloud.read_e57
-        # ".pts": "readers.pts",
+        ".e57": point_cloud.read_e57,
+        ".pts": point_cloud.read_pts
         # ".pcd": "readers.pcd"
     }
     writers = {
