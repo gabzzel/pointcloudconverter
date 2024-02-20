@@ -1,4 +1,7 @@
+import os
 import sys
+import tempfile
+from typing import Optional, Any
 
 import numpy as np
 import pye57  # https://pypi.org/project/pye57/
@@ -6,6 +9,9 @@ import laspy  # https://pypi.org/project/laspy/
 import plyfile  # https://pypi.org/project/plyfile/ and https://python-plyfile.readthedocs.io/en/latest/index.html
 from plyfile import PlyData
 from tqdm import tqdm
+from pathlib import Path
+import subprocess
+
 
 def max_value_for_type(data_type):
     if np.issubdtype(data_type, np.integer):
@@ -98,6 +104,65 @@ def map_field_names(from_field_names: list[str]) -> dict:
     return mapping
 
 
+def get_skip_lines_pts(filename: str):
+    to_skip = 0
+    with open(filename, 'rb') as f:
+        for line in f:
+            candidate_header = line.strip().lower()
+            # We have encountered a header line containing the names of the columns,
+            # or the line indicating the number of points
+            if candidate_header.startswith(b"//") or candidate_header.isdigit():
+                to_skip += 1
+            # If we encounter a space in a line, and it's not a comment, we can continue reading the file.
+            elif b' ' in candidate_header:
+                return to_skip
+    return to_skip
+
+
+def find_file_in_directory(file_name, directory):
+    p = directory if type(directory) is Path else Path(directory)
+    if not p.exists() or not p.is_dir():
+        return None
+
+    # Walk through all files. If we find one that (when lowered) equals what we are looking for, return it!
+    for (root, dirs, files) in os.walk(Path(directory)):
+        files_lowered = [Path(str(os.path.join(root, file_path))).name.lower() for file_path in files]
+        for index, file_name_lowered in enumerate(files_lowered):
+            if file_name_lowered == file_name.lower():
+                return Path(str(os.path.join(root, files[index])))
+    return None
+
+
+def find_potreeconverter(current_file: str, ptc_path: Optional[str] = None):
+    # If a Potree Converter executable path is specified...
+    if ptc_path is not None:
+        p = Path(ptc_path)
+        if not p.exists():  # If this path does not exist, just do nothing.
+            print(f"Path {ptc_path} is not valid.")
+            return None
+        elif p.is_dir():
+            potreeconverter_path = find_file_in_directory("potreeconverter.exe", p)
+            if potreeconverter_path is None:
+                print(f"Could not find potreeconverter in {p} or any of its subdirectories.")
+            else:
+                return potreeconverter_path
+        elif p.is_file() and p.name.lower() == "potreeconverter.exe":
+            return p
+
+    # We did not get a Potree converter path specified. We need to look ourselves.
+    else:
+        p = Path(current_file)
+        if not p.exists() or not p.is_file():
+            print(f"The given file {p} is invalid!")
+            return None
+        potree_path = find_file_in_directory("potreeconverter.exe", p.parent)
+        if potree_path is None:
+            print(f"Could not find potreeconverter in {p.parent} or any of its subdirectories.")
+            return None
+        return potree_path
+    return None
+
+
 class PointCloud:
     def __init__(self):
         self.points_default_dtype = np.dtype(np.float32)
@@ -112,7 +177,7 @@ class PointCloud:
         self.colors: np.ndarray = None  # Default type is np.uint8
 
     # https://pypi.org/project/pye57/
-    def read_e57(self, filename: str):
+    def read_e57(self, filename: str) -> bool:
         e57_object = pye57.E57(filename)
         data = e57_object.read_scan_raw(0)
         header: pye57.ScanHeader = e57_object.get_header(0)
@@ -132,8 +197,10 @@ class PointCloud:
             if fm['r'] and fm['g'] and fm['b'] \
             else np.zeros(shape=(header.point_count, 3), dtype=self.color_default_dtype)
 
+        return True
+
     # https://pypi.org/project/pye57/
-    def write_e57(self, filename: str):
+    def write_e57(self, filename: str) -> bool:
         e57_object = pye57.E57(filename, mode="w")
 
         raw_data = dict()
@@ -150,9 +217,10 @@ class PointCloud:
         raw_data["colorBlue"] = self.colors[:, 2]
 
         e57_object.write_scan_raw(raw_data)
+        return True
 
     # https://github.com/laspy/laspy/blob/740153c7b75abbea240d0b18a07f03038469f1fd/docs/complete_tutorial.rst#L76
-    def read_las(self, filename: str):
+    def read_las(self, filename: str) -> bool:
         las = laspy.read(filename)
         fn = map_field_names([dimension.name for dimension in las.point_format.dimensions])
 
@@ -168,7 +236,9 @@ class PointCloud:
             if 'intensity' in fn \
             else np.zeros(shape=(len(self.points),), dtype=self.intensities_default_dtype)
 
-    def write_las(self, filename: str):
+        return True
+
+    def write_las(self, filename: str) -> bool:
         point_format = 3
         header = laspy.LasHeader(point_format=point_format)
 
@@ -193,7 +263,9 @@ class PointCloud:
         las.blue = self.colors[:, 2]
         las.write(filename)
 
-    def read_ply(self, filename: str):
+        return True
+
+    def read_ply(self, filename: str) -> bool:
         ply: plyfile.PlyElement = PlyData.read(filename).elements[0]
 
         x = None
@@ -230,9 +302,10 @@ class PointCloud:
 
         if self.intensities is None:
             self.intensities = np.zeros(shape=(len(self.points),), dtype=np.float32)
+        return True
 
     # https://python-plyfile.readthedocs.io/en/latest/usage.html#creating-a-ply-file
-    def write_ply(self, filename: str):
+    def write_ply(self, filename: str) -> bool:
 
         point_type = self.points.dtype.name
         color_type = self.colors.dtype.name
@@ -263,9 +336,10 @@ class PointCloud:
         data['scalar_Intensity'] = self.intensities
         el.data = data
         PlyData([el]).write(filename)
+        return True
 
     # http://www.paulbourke.net/dataformats/pts/
-    def read_pts(self, filename: str):
+    def read_pts(self, filename: str) -> bool:
 
         dtype_list = [
             ('x', np.dtype(np.float32)), ('y', np.dtype(np.float32)), ('z', np.dtype(np.float32)),
@@ -273,7 +347,7 @@ class PointCloud:
             ('r', np.dtype(np.uint8)), ('g', np.dtype(np.uint8)), ('b', np.dtype(np.uint8))
         ]
 
-        skip_lines = self.get_skip_lines_pts(filename)
+        skip_lines = get_skip_lines_pts(filename)
         with open(filename, mode='rb') as f:
 
             # Skip the header and comments
@@ -291,8 +365,9 @@ class PointCloud:
         self.points = np.stack((data['x'], data['y'], data['z']), axis=1)
         self.intensities = data['intensity']
         self.colors = np.stack((data['r'], data['g'], data['b']), axis=1)
+        return True
 
-    def write_pts(self, filename: str):
+    def write_pts(self, filename: str) -> bool:
         # Make sure the colors are the correct format.
         if np.issubdtype(self.colors.dtype, np.integer) and self.colors.dtype != np.dtype(np.uint8):
             self.colors = convert_type_integers_incl_scaling(self.colors, np.dtype(np.uint8))
@@ -301,12 +376,6 @@ class PointCloud:
 
         self.intensities = convert_to_type_incl_scaling(self.intensities, np.dtype(np.float32), True)
 
-        dtypes = [
-            ('x', self.points.dtype), ('y', self.points.dtype), ('z', self.points.dtype),
-            ('intensity', self.intensities.dtype),
-            ('r', self.colors.dtype), ('g', self.colors.dtype), ('b', self.colors.dtype)
-        ]
-
         float_addition = 'f' if np.issubdtype(self.colors.dtype, np.floating) else ''
         header = f"X Y Z Intensity R{float_addition} G{float_addition} B{float_addition}\n"
 
@@ -314,24 +383,29 @@ class PointCloud:
             f.write(header)
             f.write(f"{len(self.points)}\n")
 
-            for i in tqdm(range(len(self.points)), unit="points",leave=True,desc="Writing .pts file..."):
+            for i in tqdm(range(len(self.points)), unit="points", leave=True, desc="Writing .pts file..."):
                 f.write(
                     " ".join((str(self.points[i][0]), str(self.points[i][1]), str(self.points[i][2]),
                               str(self.intensities[i]),
                               str(self.colors[i][0]), str(self.colors[i][1]), str(self.colors[i][2])))
                 )
                 f.write("\n")
+        return True
 
-    def get_skip_lines_pts(self, filename: str):
-        to_skip = 0
-        with open(filename, 'rb') as f:
-            for line in f:
-                candidate_header = line.strip().lower()
-                # We have encountered a header line containing the names of the columns,
-                # or the line indicating the number of points
-                if candidate_header.startswith(b"//") or candidate_header.isdigit():
-                    to_skip += 1
-                # If we encounter a space in a line, and it's not a comment, we can continue reading the file.
-                elif b' ' in candidate_header:
-                    return to_skip
-        return to_skip
+    def write_potree(self, current_file: str, target_directory: str, potreeconverter_path: Optional[str] = None):
+        # Find the Potree converter by
+        # (1) the given path if the given path is a file path,
+        # (2) inside the given directory if the given path is a directory
+        # (3) inside the folder of the currently executed file or any of its subdirectories.
+        potree_exe = find_potreeconverter(current_file, potreeconverter_path)
+        if potree_exe is None:
+            print(f"Could not find potreeconverter. Conversion cancelled.")
+            return False
+
+        print(f"Found potree converter at {potree_exe}.")
+        tempdir = tempfile.gettempdir()
+        temp_las_file = str(os.path.join(tempdir, "templas.las"))
+        self.write_las(temp_las_file)
+        subprocess.run([str(potree_exe), temp_las_file, "-o", target_directory])
+        os.remove(temp_las_file)
+        return True
