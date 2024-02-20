@@ -194,13 +194,9 @@ class PointCloud:
             # TODO, this does not work!
             header.offsets = np.min(self.points, axis=0)
             header.scales = np.max(self.points - header.offsets, axis=0) / np.iinfo(np.int32).max
-            scaling_factor = np.iinfo(np.int32).max / max_value_for_type(self.points.dtype)
-            self.points = (self.points * scaling_factor).astype(np.int32)
 
         las = laspy.LasData(header)
-        las.x = self.points[:, 0]
-        las.y = self.points[:, 1]
-        las.z = self.points[:, 2]
+        las.xyz = self.points
 
         # Intensity and color is always unsigned 16bit with las, meaning the max value is 65535
         las.intensity = convert_to_type_incl_scaling(self.intensities, np.dtype(np.uint16), False)
@@ -209,7 +205,6 @@ class PointCloud:
         las.red = self.colors[:, 0]
         las.green = self.colors[:, 1]
         las.blue = self.colors[:, 2]
-        las.header = header
         las.write(filename)
 
     def read_ply(self, filename: str):
