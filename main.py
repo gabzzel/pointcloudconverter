@@ -1,12 +1,13 @@
 import logging
 import os
+import subprocess
 from argparse import ArgumentParser
 import sys
 from pathlib import Path
 import time
 import pye57
 
-from PointCloud import PointCloud
+import PointCloud
 
 
 def parse_args(valid_extensions, raw_args=None):
@@ -64,7 +65,7 @@ def execute(raw_args):
 
     read_path, read_extension, write_path, write_extension = args
 
-    point_cloud = PointCloud()
+    point_cloud = PointCloud.PointCloud()
 
     readers = {
         ".las": point_cloud.read_las,
@@ -80,6 +81,16 @@ def execute(raw_args):
         ".e57": point_cloud.write_e57,
         ".pts": point_cloud.write_pts,
     }
+
+    # Special case where we can directly call the Potree converter
+    if (read_extension == ".las" or read_extension == ".laz") and write_extension == "potree":
+        ptc = PointCloud.find_potreeconverter(sys.argv[0])
+        if ptc is None:
+            print(f"Could not find potree converter! Cancelling.")
+            return
+        subprocess.run([str(ptc), read_path, "-o", write_path])
+        print(f"Used potree converter at {ptc} for convert {read_path} to potree.")
+        return
 
     success = False
     if read_extension in readers:
