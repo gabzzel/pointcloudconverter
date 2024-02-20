@@ -78,6 +78,7 @@ def execute(raw_args):
         ".ply": point_cloud.write_ply,
         ".e57": point_cloud.write_e57,
         ".pts": point_cloud.write_pts,
+        ".pcd": point_cloud.write_pcd
     }
 
     # Special case where we can directly call the Potree converter

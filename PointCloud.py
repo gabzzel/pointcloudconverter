@@ -292,3 +292,23 @@ class PointCloud:
 
         if fn['intensity'] is not None:
             self.intensities = np.squeeze(pc.numpy(fields=[fn['intensity']]))
+
+    def write_pcd(self, filename: str):
+
+        types = [('x', self.points.dtype), ('y', self.points.dtype), ('z', self.points.dtype),
+                 ('intensity', self.intensities.dtype),
+                 ('r', self.colors.dtype), ('g', self.colors.dtype), ('b', self.colors.dtype)]
+        array = np.empty(shape=len(self.points), dtype=types)
+        array['x'] = self.points[:, 0]
+        array['y'] = self.points[:, 1]
+        array['z'] = self.points[:, 2]
+        array['intensity'] = self.intensities
+        array['r'] = self.colors[:, 0]
+        array['g'] = self.colors[:, 1]
+        array['b'] = self.colors[:, 2]
+        
+        # TODO insert the array in such a way that this method understands. It probably has to be transposed or something.
+        pc = pypcd4.PointCloud.from_points(array,
+                                           fields=[t[0] for t in types],
+                                           types=[t[1] for t in types])
+        x = 0
