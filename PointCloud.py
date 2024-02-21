@@ -29,6 +29,8 @@ class PointCloud:
         self.color_default_dtype = np.dtype(np.uint8)
         self.colors: np.ndarray = None  # Default type is np.uint8
 
+        self.custom_bounds = None
+
     @property
     def x(self):
         return self.points[:, 0]
@@ -56,23 +58,28 @@ class PointCloud:
     # https://pypi.org/project/pye57/
     def read_e57(self, filename: str) -> bool:
         e57_object = pye57.E57(filename)
-        data = e57_object.read_scan_raw(0)
+        data = e57_object.read_scan(0, row_column=False, transform=True, intensity=True, colors=True,
+                                    ignore_missing_fields=True)
         header: pye57.ScanHeader = e57_object.get_header(0)
 
         fm = map_field_names(header.point_fields)  # Field mapping
 
-        self.points = np.stack((data[fm['x']], data[fm['y']], data[fm['z']]), axis=1, dtype=self.points_default_dtype) \
+        self.points = np.stack((data[fm['x']], data[fm['y']], data[fm['z']]), axis=1) \
             if fm['x'] and fm['y'] and fm['z'] \
             else np.zeros(shape=(header.point_count, 3), dtype=self.points_default_dtype)
 
-        self.intensities = data[fm['intensity']].astype(np.float32) \
-            if fm['intensity'] \
+        self.intensities = data[fm['intensity']] if fm['intensity'] \
             else np.zeros(shape=(header.point_count,), dtype=self.intensities_default_dtype)
 
-        # We assume the .e57 has colors in [0,255]
-        self.colors = np.stack((data[fm['r']], data[fm['g']], data[fm['b']]), axis=1, dtype=np.uint8) \
-            if fm['r'] and fm['g'] and fm['b'] \
-            else np.zeros(shape=(header.point_count, 3), dtype=self.color_default_dtype)
+        # Probably the .e57 has colors in [0,255]
+        if fm['r'] and fm['g'] and fm['b']:
+            self.colors = np.stack((data[fm['r']], data[fm['g']], data[fm['b']]), axis=1)
+        else:
+            self.colors = np.zeros(shape=(header.point_count, 3), dtype=self.color_default_dtype)
+
+        if header.cartesianBounds is not None:
+            self.custom_bounds = np.array([header.xMinimum, header.xMaximum, header.yMinimum, header.yMaximum,
+                                           header.zMinimum, header.zMaximum])
 
         return True
 
@@ -128,6 +135,10 @@ class PointCloud:
             header.offsets = np.min(self.points, axis=0)
             header.scales = np.max(self.points - header.offsets, axis=0) / np.iinfo(np.int32).max
 
+        if self.custom_bounds is not None:
+            header.maxs = np.array([self.custom_bounds[1], self.custom_bounds[3], self.custom_bounds[5]])
+            header.mins = np.array([self.custom_bounds[0], self.custom_bounds[2], self.custom_bounds[4]])
+
         las = laspy.LasData(header)
         max_allowed = np.iinfo(np.int32).max * header.scales + header.offsets
         min_allowed = np.iinfo(np.int32).min * header.scales + header.offsets
@@ -137,7 +148,7 @@ class PointCloud:
         las.z = np.clip(self.points[:, 2], min_allowed[2], max_allowed[2])
 
         # Intensity and color is always unsigned 16bit with las, meaning the max value is 65535
-        las.intensity = convert_to_type_incl_scaling(self.intensities, np.dtype(np.uint16), False)
+        las.intensity = convert_to_type_incl_scaling(self.intensities, np.dtype(np.uint16), True)
 
         self.colors = convert_to_type_incl_scaling(self.colors, np.dtype(np.uint16), True)
         las.red = self.colors[:, 0]
