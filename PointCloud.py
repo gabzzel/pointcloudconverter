@@ -7,7 +7,7 @@ import pye57  # https://pypi.org/project/pye57/
 import laspy  # https://pypi.org/project/laspy/
 import plyfile  # https://pypi.org/project/plyfile/ and https://python-plyfile.readthedocs.io/en/latest/index.html
 from plyfile import PlyData
-import pypcd4
+import pypcd4  # https://pypi.org/project/pypcd4/
 from tqdm import tqdm
 import subprocess
 
@@ -28,6 +28,30 @@ class PointCloud:
 
         self.color_default_dtype = np.dtype(np.uint8)
         self.colors: np.ndarray = None  # Default type is np.uint8
+
+    @property
+    def x(self):
+        return self.points[:, 0]
+
+    @property
+    def y(self):
+        return self.points[:, 1]
+
+    @property
+    def z(self):
+        return self.points[:, 2]
+
+    @property
+    def r(self):
+        return self.colors[:, 0]
+
+    @property
+    def g(self):
+        return self.colors[:, 1]
+
+    @property
+    def b(self):
+        return self.colors[:, 2]
 
     # https://pypi.org/project/pye57/
     def read_e57(self, filename: str) -> bool:
@@ -264,7 +288,8 @@ class PointCloud:
         tempdir = tempfile.gettempdir()
         temp_las_file = str(os.path.join(tempdir, "templas.las"))
         self.write_las(temp_las_file)
-        subprocess.run([str(potree_exe), temp_las_file, "-o", target_directory], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+        subprocess.run([str(potree_exe), temp_las_file, "-o", target_directory], stdout=subprocess.DEVNULL,
+                       stderr=subprocess.STDOUT)
         os.remove(temp_las_file)
         return True
 
@@ -292,23 +317,27 @@ class PointCloud:
 
         if fn['intensity'] is not None:
             self.intensities = np.squeeze(pc.numpy(fields=[fn['intensity']]))
+        else:
+            self.intensities = np.zeros(shape=(len(self.points), ), dtype=self.intensities_default_dtype)
 
-    def write_pcd(self, filename: str):
+    # https://pypi.org/project/pypcd4/
+    def write_pcd(self, filename: str) -> bool:
+        fields = ['x', 'y', 'z', 'intensity', 'rgb']
+        types = [self.points.dtype, self.points.dtype, self.points.dtype, self.intensities.dtype]
 
-        types = [('x', self.points.dtype), ('y', self.points.dtype), ('z', self.points.dtype),
-                 ('intensity', self.intensities.dtype),
-                 ('r', self.colors.dtype), ('g', self.colors.dtype), ('b', self.colors.dtype)]
-        array = np.empty(shape=len(self.points), dtype=types)
-        array['x'] = self.points[:, 0]
-        array['y'] = self.points[:, 1]
-        array['z'] = self.points[:, 2]
-        array['intensity'] = self.intensities
-        array['r'] = self.colors[:, 0]
-        array['g'] = self.colors[:, 1]
-        array['b'] = self.colors[:, 2]
-        
-        # TODO insert the array in such a way that this method understands. It probably has to be transposed or something.
-        pc = pypcd4.PointCloud.from_points(array,
-                                           fields=[t[0] for t in types],
-                                           types=[t[1] for t in types])
-        x = 0
+        # RGB conversion creates a 1D np.float32 array out of a np.uint8 array.
+        rgb = pypcd4.PointCloud.encode_rgb(convert_to_type_incl_scaling(self.colors, np.dtype(np.uint8), True))
+        types.append(rgb.dtype)
+
+        try:
+            pc = pypcd4.PointCloud.from_points(points=[self.x, self.y, self.z, self.intensities, rgb],
+                                               fields=fields,
+                                               types=types)
+            pc.save(fp=filename, encoding=pypcd4.Encoding.BINARY)
+            return True
+
+        except Exception as e:
+            print(f"Error: could not write .pcd: {e}")
+
+        return False
+

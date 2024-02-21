@@ -4,3 +4,5 @@ dist/
 *.spec
 __pycache__/PointCloud.cpython-310.pyc
 /potreeconverter/
+__pycache__/*
+__pycache__/PointCloud.cpython-310.pyc
