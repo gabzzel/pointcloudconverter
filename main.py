@@ -1,63 +1,105 @@
 import os
+import pathlib
 import subprocess
 import sys
 import time
 from pathlib import Path
+import argparse
 
 import PointCloud
 import io_utils
+from typing import Tuple, Optional
 
 
-def parse_args(valid_extensions, raw_args=None):
-    args = sys.argv[1:] if raw_args is None else raw_args
+def parse_args(valid_extensions) -> Optional[Tuple[Path, str, Path, str]]:
+    description = "This program is used to convert point clouds of different formats from and to each other."
+    parser = argparse.ArgumentParser(prog="Point Cloud Converter", description=description)
+    parser.add_argument('origin_path',
+                        help='Path to the point cloud file to convert.',
+                        action='store',
+                        type=Path)
 
-    if len(args) < 1:
-        print(f"No filepath provided. Cancelling.")
+    parser.add_argument('-destination_path', '-destination', '-dest', '-d',
+                        help='Path of the destination of the converted point cloud. If a folder, places converted '
+                             'pointcloud in that folder. If a file path, writes the converted point cloud to that '
+                             'file path.',
+                        action='store',
+                        type=Path)
+
+    parser.add_argument('-extension', '-ext', '-e',
+                        help='The target extension or format of the converted point cloud. '
+                             'Ignored when the destination_path is a file path. Defaults to .las',
+                        choices=valid_extensions,
+                        default='.las',
+                        type=str,
+                        action='store')
+
+    args = parser.parse_args()
+    origin_path: Path = args.origin_path
+
+    if not origin_path.is_file():
+        print(f"ERROR: The provided origin path is not a file ({origin_path}). Cancelling.")
         return None
 
-    file_path_raw = args[0].strip()
-
-    read_path = Path(file_path_raw)
-    if not read_path.exists():
-        print(f"ERROR: File at path {read_path} does not exist. Cancelling.")
+    if origin_path.suffix not in valid_extensions:
+        print(f"ERROR: The provided file does not have a valid extension. Found {origin_path.suffix} but expected "
+              f"one of {valid_extensions}. Cancelling.")
         return None
 
-    read_extension = read_path.suffix.lower()
+    print(f"SUCCESS: Found valid point cloud file at {origin_path}")
 
-    if not (read_extension in valid_extensions):
-        print(f"ERROR: File {read_path} has unsupported extension {read_extension}. Cancelling.")
+    origin_file_name = origin_path.stem
+    origin_directory: Path = origin_path.parent
+    provided_destination_path: Path = args.destination_path
+    destination_path = None
+
+    # Case 1: Destination path and extension are not provided.
+    if args.destination_path is None and args.extension is None:
+        print(f"WARNING: No destination path of extension provided. Defaulting to extension .las. "
+              f"The converted point cloud will be stored in the same folder as the origin: ({origin_directory})")
+        destination_path = origin_directory.joinpath(origin_file_name, '.las')
+
+    # Case 2: destination path is a (valid) file. Ignore the extension.
+    elif (args.destination_path is not None and provided_destination_path.is_file() and
+          provided_destination_path.suffix in valid_extensions):
+        print(f"Found valid destination file: {provided_destination_path}")
+        destination_path = provided_destination_path
+
+        if args.extension is not None:
+            print(f"WARNING: A valid extension/format ({args.extension}) is given, but will be ignored since "
+                  f"the destination path already provides the target extension {destination_path.suffix}")
+
+    # Case 3: destination path is a directory and extension is available
+    elif args.destination_path is not None and provided_destination_path.is_dir() and args.extension is not None:
+        print(f"SUCCESS: Found valid destination directory and extension.")
+        destination_path = provided_destination_path.joinpath(origin_file_name + args.extension)
+
+    # Case 4: destination path is directory and extension is not available.
+    elif args.destination_path is not None and provided_destination_path.is_dir() and args.extension is None:
+        print(f"SUCCESS: A valid destination directory has been found but no extension. Default .las will be used.")
+        destination_path = provided_destination_path
+
+    # Case 5: destination path is not provided and extension is provided.
+    elif args.destination_path is None and args.extension is not None:
+        print(f"SUCCESS: Valid extension {args.extension} has been provided. Point cloud will be placed in the same"
+              f" directory as the original point cloud.")
+        destination_path = origin_directory.joinpath(origin_file_name + args.extension)
+
+    if destination_path is None:
+        print(f"ERROR: Could not parse arguments. Cancelling.")
         return None
 
-    write_extension = ".las"
-    write_path = Path(file_path_raw).with_suffix(write_extension) \
-        if args[1].strip().lower() != "potree" \
-        else Path(str(os.path.join(read_path.parent, read_path.stem + "_potree")))
+    # If the format should be potree, the destination should be a folder, not a file.
+    if args.extension == "potree":
+        destination_path = destination_path.parent.joinpath(origin_file_name + "_potree")
 
-    if len(args) > 1:
-        destination = args[1]
-        if destination.strip().lower() in valid_extensions:
-            write_extension = destination
-        else:
-            print(f"WARNING: Extension {destination} is not valid or permitted. "
-                  f"Permitted extensions are {valid_extensions}. Using default .las")
-
-    if not (write_extension in valid_extensions):
-        print(f"WARNING: Provided write extension {write_extension} is not valid. Using default .las")
-
-    if write_extension == read_extension:
-        print(f"ERROR: The read file {read_path} has already the target extension {write_extension}. Cancelling.")
-        return None
-
-    if write_extension != "potree":
-        write_path = write_path.with_suffix(write_extension)
-
-    return read_path, read_extension, write_path, write_extension
+    return origin_path, origin_path.suffix, destination_path, args.extension
 
 
 def execute(raw_args):
-
     extensions = [".las", ".ply", ".e57", ".pts", ".pcd", "potree"]
-    args = parse_args(extensions, raw_args)
+    args = parse_args(extensions)
+
     if args is None:
         return
 
