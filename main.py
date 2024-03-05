@@ -34,6 +34,11 @@ def parse_args(valid_extensions) -> Optional[Tuple[Path, str, Path, str]]:
                         type=str,
                         action='store')
 
+    parser.add_argument('-unsafe', '-u', '-overwrite',
+                        help='Whether to allow overwriting of existing point cloud.',
+                        action='store_true',
+                        default=False)
+
     args = parser.parse_args()
     origin_path: Path = args.origin_path
 
@@ -92,6 +97,11 @@ def parse_args(valid_extensions) -> Optional[Tuple[Path, str, Path, str]]:
     # If the format should be potree, the destination should be a folder, not a file.
     if args.extension == "potree":
         destination_path = destination_path.parent.joinpath(origin_file_name + "_potree")
+
+    if not args.unsafe and destination_path.exists():
+        print("ERROR: Provided safe execution (i.e. no file or folder overwriting) and found existing file or folder "
+              f"{destination_path}. Exitting.")
+        return None
 
     return origin_path, origin_path.suffix, destination_path, args.extension
 
