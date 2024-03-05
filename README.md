@@ -18,22 +18,22 @@ If not provided, the destination will be assumed to be the same folder as the or
 - OPTIONAL: `-unsafe` or `-u` to allow the application to overwrite folders and files. By default, the program does *not* overwrite files.
 
 ## Examples:
-1. Providing only an origin. Extension defaults to `.las`.
-Command: `C:\Users\Someone\pointcloudconverter.exe C:\Users\Someone\pointcloud-dummy.e57`
+1. Providing only an origin. Extension defaults to `.las`.  
+`C:\Users\Someone\pointcloudconverter.exe C:\Users\Someone\pointcloud-dummy.e57`  
 Converted file will be at `C:\Users\Someone\pointcloud-dummy.las`
 
-2. Providing a destination file. Convert the `pointcloud-dummy.e57` file to a .las file.
-Command: `C:\Users\Someone\pointcloudconverter.exe C:\Users\Someone\pointcloud-dummy.e57 -destination C:\Users\Someone\targetpointcloud.las`
-Converted file will be at `C:\Users\Someone\targetpointcloud.las`
+2. Providing a destination file. Convert the `pointcloud-dummy.e57` file to a .las file.   
+`C:\Users\Someone\pointcloudconverter.exe C:\Users\Someone\pointcloud-dummy.e57 -destination C:\Users\Someone\targetpointcloud.las`  
+Converted file will be at `C:\Users\Someone\targetpointcloud.las`  
 
-3. Providing a destination directory. Extension defaults to `.las`
-Command: `C:\Users\Someone\pointcloudconverter.exe C:\Users\Someone\pointcloud-dummy.e57 -dest C:\Users\Someone\Downloads`
-Converted file will be at `C:\Users\Someone\Downloads\pointcloud-dummy.las`
+3. Providing a destination directory. Extension defaults to `.las`  
+`C:\Users\Someone\pointcloudconverter.exe C:\Users\Someone\pointcloud-dummy.e57 -dest C:\Users\Someone\Downloads`  
+Converted file will be at `C:\Users\Someone\Downloads\pointcloud-dummy.las`  
 
-4. Providing an extension. Destination directory defaults to origin parent directory.
-Command: `C:\Users\Someone\pointcloudconverter.exe C:\Users\Someone\pointcloud-dummy.e57 -ext .pcd`
-Converted file will be at `C:\Users\Someone\pointcloud-dummy.pcd`
+4. Providing an extension. Destination directory defaults to origin parent directory.  
+`C:\Users\Someone\pointcloudconverter.exe C:\Users\Someone\pointcloud-dummy.e57 -ext .pcd`  
+Converted file will be at `C:\Users\Someone\pointcloud-dummy.pcd`  
 
-5. Providing both extension and destination directory.
-Command: `C:\Users\Someone\pointcloudconverter.exe C:\Users\Someone\pointcloud-dummy.e57 -dest C:\Users\Someone\Downloads -ext .pts`
-Converted file will be at `C:\Users\Someone\Downloads\pointcloud-dummy.pts`
+5. Providing both extension and destination directory.  
+`C:\Users\Someone\pointcloudconverter.exe C:\Users\Someone\pointcloud-dummy.e57 -dest C:\Users\Someone\Downloads -ext .pts`  
+Converted file will be at `C:\Users\Someone\Downloads\pointcloud-dummy.pts`  
