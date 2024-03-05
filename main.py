@@ -5,6 +5,9 @@ import sys
 import time
 from pathlib import Path
 import argparse
+from colorama import init as colorama_init
+from colorama import Fore
+from colorama import Style
 
 import PointCloud
 import io_utils
@@ -51,7 +54,7 @@ def parse_args(valid_extensions) -> Optional[Tuple[Path, str, Path, str]]:
               f"one of {valid_extensions}. Cancelling.")
         return None
 
-    print(f"SUCCESS: Found valid point cloud file at {origin_path}")
+    log(f"Found valid point cloud file at {origin_path}", 's')
 
     origin_file_name = origin_path.stem
     origin_directory: Path = origin_path.parent
@@ -60,38 +63,38 @@ def parse_args(valid_extensions) -> Optional[Tuple[Path, str, Path, str]]:
 
     # Case 1: Destination path and extension are not provided.
     if args.destination_path is None and args.extension is None:
-        print(f"WARNING: No destination path of extension provided. Defaulting to extension .las. "
-              f"The converted point cloud will be stored in the same folder as the origin: ({origin_directory})")
+        log(f"No destination path of extension provided. Defaulting to extension .las. "
+            f"The converted point cloud will be stored in the same folder as the origin: ({origin_directory})", 'w')
         destination_path = origin_directory.joinpath(origin_file_name, '.las')
 
     # Case 2: destination path is a (valid) file. Ignore the extension.
     elif (args.destination_path is not None and provided_destination_path.is_file() and
           provided_destination_path.suffix in valid_extensions):
-        print(f"Found valid destination file: {provided_destination_path}")
+        log(f"Found valid destination file: {provided_destination_path}", 's')
         destination_path = provided_destination_path
 
         if args.extension is not None:
-            print(f"WARNING: A valid extension/format ({args.extension}) is given, but will be ignored since "
-                  f"the destination path already provides the target extension {destination_path.suffix}")
+            log(f"A valid extension/format ({args.extension}) is given, but will be ignored since "
+                f"the destination path already provides the target extension {destination_path.suffix}", 'w')
 
     # Case 3: destination path is a directory and extension is available
     elif args.destination_path is not None and provided_destination_path.is_dir() and args.extension is not None:
-        print(f"SUCCESS: Found valid destination directory and extension.")
+        log(f"Found valid destination directory and extension.", 's')
         destination_path = provided_destination_path.joinpath(origin_file_name + args.extension)
 
     # Case 4: destination path is directory and extension is not available.
     elif args.destination_path is not None and provided_destination_path.is_dir() and args.extension is None:
-        print(f"SUCCESS: A valid destination directory has been found but no extension. Default .las will be used.")
+        log(f"A valid destination directory has been found but no extension. Default .las will be used.", 'w')
         destination_path = provided_destination_path
 
     # Case 5: destination path is not provided and extension is provided.
     elif args.destination_path is None and args.extension is not None:
-        print(f"SUCCESS: Valid extension {args.extension} has been provided. Point cloud will be placed in the same"
-              f" directory as the original point cloud.")
+        log(f"Valid extension {args.extension} has been provided. Point cloud will be placed in the same"
+            f" directory as the original point cloud.", 'w')
         destination_path = origin_directory.joinpath(origin_file_name + args.extension)
 
     if destination_path is None:
-        print(f"ERROR: Could not parse arguments. Cancelling.")
+        log(f"Could not parse arguments. Cancelling.", 'e')
         return None
 
     # If the format should be potree, the destination should be a folder, not a file.
@@ -99,14 +102,14 @@ def parse_args(valid_extensions) -> Optional[Tuple[Path, str, Path, str]]:
         destination_path = destination_path.parent.joinpath(origin_file_name + "_potree")
 
     if not args.unsafe and destination_path.exists():
-        print("ERROR: Provided safe execution (i.e. no file or folder overwriting) and found existing file or folder "
-              f"{destination_path}. Exitting.")
+        log("Provided safe execution (i.e. no file or folder overwriting) and found existing file or folder "
+            f"{destination_path}. Exitting.", 'e')
         return None
 
     return origin_path, origin_path.suffix, destination_path, args.extension
 
 
-def execute(raw_args):
+def execute():
     extensions = [".las", ".ply", ".e57", ".pts", ".pcd", "potree"]
     args = parse_args(extensions)
 
@@ -137,10 +140,10 @@ def execute(raw_args):
     if (read_extension == ".las" or read_extension == ".laz") and write_extension == "potree":
         ptc = io_utils.find_potreeconverter(sys.argv[0])
         if ptc is None:
-            print(f"Could not find potree converter! Cancelling.")
+            log(f"Could not find potree converter! Cancelling.", 'e')
             return
         subprocess.run([str(ptc), read_path, "-o", write_path], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
-        print(f"Used potree converter at {ptc} for convert {read_path} to potree.")
+        log(f"Used potree converter at {ptc} for convert {read_path} to potree.", 's')
         return
 
     success = False
@@ -149,10 +152,10 @@ def execute(raw_args):
         success = readers[read_extension](str(read_path))
         elapsed = round(time.time() - start_time, 3)
         if success:
-            print(f"Successfully read file {read_path} [{elapsed}s]")
+            log(f"Successfully read file {read_path} [{elapsed}s]", 's')
 
     if not success:
-        print(f"Could not read file at {read_path}. Cancelling.")
+        log(f"Could not read file at {read_path}. Cancelling.", 'e')
         time.sleep(5)
         return
 
@@ -161,22 +164,33 @@ def execute(raw_args):
         success = writers[write_extension](str(write_path))
         elapsed = round(time.time() - start_time, 3)
         if success:
-            print(f"Written file {write_path} [{elapsed}s]")
+            log(f"Written file {write_path} [{elapsed}s]", 's')
     elif write_extension == "potree":
         start_time = time.time()
         success = point_cloud.write_potree(current_file=sys.argv[0], target_directory=str(write_path))
         elapsed = round(time.time() - start_time, 3)
         if success:
-            print(f"Written file {write_path} [{elapsed}s]")
+            log(f"Written file {write_path} [{elapsed}s]", 's')
 
     if not success:
-        print(f"Could not write file at {write_path}.")
+        log(f"Could not write file at {write_path}.", 'e')
+
+
+def log(msg: str, level: str) -> None:
+    level = level.lower().strip()
+    if level == 'success' or level == 's':
+        print(f"{Fore.GREEN}SUCCESS{Style.RESET_ALL}:", msg)
+    elif level == 'warning' or level == 'w':
+        print(f"{Fore.YELLOW}WARNING{Style.RESET_ALL}:", msg)
+    elif level == 'error' or level == 'er' or level == 'e':
+        print(f"{Fore.RED}ERROR{Style.RESET_ALL}:", msg)
 
 
 if __name__ == '__main__':
+    colorama_init()
     if len(sys.argv) > 1:
         start_time = time.time()
-        execute(sys.argv[1:])
+        execute()
         elapsed = round(time.time() - start_time, 3)
         print("Finished in ", elapsed, " seconds.")
     else:
