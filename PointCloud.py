@@ -284,12 +284,20 @@ class PointCloud:
             progress_bar = tqdm(desc="Writing progress", unit='%', total=100)
 
         progress = 0
+        points = np.column_stack((self.points, self.intensities, self.colors))
+        batch_size = 1_000_000
+
         with open(filename, mode='w') as f:
             f.write(header)
             f.write(f"{len(self.points)}\n")
 
-            for i in range(len(self.points)):
-                new_progress = int(i / len(self.points) * 100)
+            for i in range(0, len(points), batch_size):
+                batch = points[i:i + batch_size]
+                for point in batch:
+                    f.write(" ".join(map(str, point)))
+                    f.write("\n")
+
+                new_progress = int((i + batch_size) / len(points) * 100)
                 increase = new_progress - progress
                 progress = new_progress
 
@@ -297,13 +305,6 @@ class PointCloud:
                     progress_bar.update(increase)
                 elif verbose == 3 and increase > 0:
                     print(f"w{progress}")
-
-                f.write(
-                    " ".join((str(self.points[i][0]), str(self.points[i][1]), str(self.points[i][2]),
-                              str(self.intensities[i]),
-                              str(self.colors[i][0]), str(self.colors[i][1]), str(self.colors[i][2])))
-                )
-                f.write("\n")
 
         if verbose == 3:
             print("w100")
