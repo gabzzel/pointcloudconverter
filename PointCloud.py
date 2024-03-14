@@ -1,6 +1,7 @@
 import os
 import tempfile
 from typing import Optional
+import re
 
 import numpy as np
 import pye57  # https://pypi.org/project/pye57/
@@ -288,23 +289,64 @@ class PointCloud:
                 f.write("\n")
         return True
 
-    def write_potree(self, current_file: str, target_directory: str, potreeconverter_path: Optional[str] = None):
+    def write_potree(self,
+                     current_file: str,
+                     target_directory: str,
+                     potreeconverter_path: Optional[str] = None,
+                     verbosity: int = 0):
         # Find the Potree converter by
         # (1) the given path if the given path is a file path,
         # (2) inside the given directory if the given path is a directory
         # (3) inside the folder of the currently executed file or any of its subdirectories.
         potree_exe = find_potreeconverter(current_file, potreeconverter_path)
         if potree_exe is None:
-            print(f"Could not find potreeconverter. Conversion cancelled.")
+            if verbosity == 1 or verbosity == 2:
+                print(f"Could not find potreeconverter. Conversion cancelled.")
             return False
 
-        print(f"Found potree converter at {potree_exe}.")
+        if verbosity == 1 or verbosity == 2:
+            print(f"Found potree converter at {potree_exe}.")
+
         tempdir = tempfile.gettempdir()
         temp_las_file = str(os.path.join(tempdir, "templas.las"))
-        self.write_las(temp_las_file)
-        subprocess.run([str(potree_exe), temp_las_file, "-o", target_directory], stdout=subprocess.DEVNULL,
-                       stderr=subprocess.STDOUT)
-        os.remove(temp_las_file)
+
+        self.write_las(temp_las_file, verbose=verbosity)  # Create a temporary las file.
+
+        #subprocess.run([str(potree_exe), temp_las_file, "-o", target_directory], stdout=subprocess.DEVNULL,
+        #               stderr=subprocess.STDOUT)
+
+        arguments = [temp_las_file, '-o', target_directory]
+        command = [potree_exe] + arguments
+        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+
+        if verbosity == 2 or verbosity == 3:
+
+            progress_bar = tqdm(desc="Writing potree", total=100, unit='%') if verbosity == 2 else None
+            percent = 0
+            for stdout_line in iter(process.stdout.readline, ''):
+                try:
+                    first_percent_index = stdout_line.index('%')
+                    new_percent = int(re.findall(r'\d+', stdout_line[:first_percent_index])[0])
+                    increase = max(0, new_percent - percent)
+                    percent = new_percent
+                    if progress_bar:
+                        progress_bar.update(increase)
+                    else:
+                        print(f"w{percent}")
+
+                except ValueError:
+                    continue
+
+        # If we want to print errors.
+        # for stderr_line in iter(process.stderr.readline, ''):
+        #    print("Standard Error:", stderr_line, end='')
+
+        process.communicate()
+
+        if verbosity == 3:  # Print that we are done.
+            print("w100")
+
+        os.remove(temp_las_file)  # Clean up
         return True
 
     def read_pcd(self, filename: str):

@@ -178,7 +178,7 @@ def execute():
             log(f"Written file {write_path} [{elapsed}s]", 's', verbose)
     elif write_extension == "potree":
         start_time = time.time()
-        success = point_cloud.write_potree(current_file=sys.argv[0], target_directory=str(write_path))
+        success = point_cloud.write_potree(current_file=sys.argv[0], target_directory=str(write_path), verbosity=verbose)
         elapsed = round(time.time() - start_time, 3)
         if success:
             log(f"Written file {write_path} [{elapsed}s]", 's', verbose)
