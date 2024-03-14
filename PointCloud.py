@@ -17,6 +17,7 @@ from custom_overwrites.CustomPly import CustomPlyElement
 from custom_overwrites.LasDataOverwrite import CustomLasData
 from io_utils import find_potreeconverter, convert_type_integers_incl_scaling, get_skip_lines_pts
 from util import convert_to_type_incl_scaling, map_field_names
+from custom_overwrites.CustomPcd import CustomPcdPointCloud
 
 
 class PointCloud:
@@ -389,6 +390,9 @@ class PointCloud:
             pc = pypcd4.PointCloud.from_points(points=[self.x, self.y, self.z, self.intensities, rgb],
                                                fields=fields,
                                                types=types)
+
+            # Convert the point cloud to the custom format
+            pc = CustomPcdPointCloud(metadata=pc.metadata, pc_data=pc.pc_data, verbosity=verbose)
             pc.save(fp=filename, encoding=pypcd4.Encoding.BINARY)
             return True
 
