@@ -12,6 +12,7 @@ from tqdm import tqdm
 import subprocess
 
 import util
+from custom_overwrites.CustomPly import CustomPlyElement
 from custom_overwrites.LasDataOverwrite import CustomLasData
 from io_utils import find_potreeconverter, convert_type_integers_incl_scaling, get_skip_lines_pts
 from util import convert_to_type_incl_scaling, map_field_names
@@ -215,7 +216,8 @@ class PointCloud:
             plyfile.PlyProperty('scalar_Intensity', intensity_type)
         ]
 
-        el = plyfile.PlyElement(name="points", properties=properties, count=str(len(self.points)))
+        el = CustomPlyElement(name="points", properties=properties, count=str(len(self.points)), comments=[],
+                              verbose=verbose)
         dtype_list = [('x', point_type), ('y', point_type), ('z', point_type),
                       ('red', color_type), ('green', color_type), ('blue', color_type),
                       ('scalar_Intensity', intensity_type)]
