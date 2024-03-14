@@ -12,6 +12,7 @@ import pypcd4  # https://pypi.org/project/pypcd4/
 from tqdm import tqdm
 import subprocess
 
+import custom_overwrites.CustomE57
 import util
 from custom_overwrites.CustomPly import CustomPlyElement
 from custom_overwrites.LasDataOverwrite import CustomLasData
@@ -89,7 +90,8 @@ class PointCloud:
 
     # https://pypi.org/project/pye57/
     def write_e57(self, filename: str, verbose: int = 0) -> bool:
-        e57_object = pye57.E57(filename, mode="w")
+        # e57_object = pye57.E57(filename, mode="w")
+        e57_object = custom_overwrites.CustomE57.CustomE57(filename, mode="w", verbose=verbose)
 
         raw_data = dict()
         raw_data["cartesianX"] = self.points[:, 0]
@@ -351,31 +353,36 @@ class PointCloud:
         return True
 
     def read_pcd(self, filename: str):
-        pc: pypcd4.PointCloud = pypcd4.PointCloud.from_path(filename)
-        fn = util.map_field_names(pc.fields)
+        try:
+            pc: pypcd4.PointCloud = pypcd4.PointCloud.from_path(filename)
+            fn = util.map_field_names(pc.fields)
 
-        if fn['x'] is not None and fn['y'] is not None and fn['z'] is not None:
-            x = np.squeeze(pc.numpy(fields=fn['x']))
-            y = np.squeeze(pc.numpy(fields=fn['y']))
-            z = np.squeeze(pc.numpy(fields=fn['z']))
-            self.points = np.stack((x, y, z), axis=1)
-        else:
-            self.points = np.zeros(shape=(pc.points, 3), dtype=np.float32)
+            if fn['x'] is not None and fn['y'] is not None and fn['z'] is not None:
+                x = np.squeeze(pc.numpy(fields=fn['x']))
+                y = np.squeeze(pc.numpy(fields=fn['y']))
+                z = np.squeeze(pc.numpy(fields=fn['z']))
+                self.points = np.stack((x, y, z), axis=1)
+            else:
+                self.points = np.zeros(shape=(pc.points, 3), dtype=np.float32)
 
-        if fn['r'] is not None and fn['g'] is not None and fn['b'] is not None:
-            r = np.squeeze(pc.numpy(fields=fn['r']))
-            g = np.squeeze(pc.numpy(fields=fn['g']))
-            b = np.squeeze(pc.numpy(fields=fn['b']))
-            self.colors = np.stack((r, g, b), axis=1)
-        elif 'rgb' in pc.fields:
-            self.colors = pc.decode_rgb(pc.numpy(fields=['rgb']))
-        else:
-            self.colors = np.zeros_like(self.points, dtype=self.color_default_dtype)
+            if fn['r'] is not None and fn['g'] is not None and fn['b'] is not None:
+                r = np.squeeze(pc.numpy(fields=fn['r']))
+                g = np.squeeze(pc.numpy(fields=fn['g']))
+                b = np.squeeze(pc.numpy(fields=fn['b']))
+                self.colors = np.stack((r, g, b), axis=1)
+            elif 'rgb' in pc.fields:
+                self.colors = pc.decode_rgb(pc.numpy(fields=['rgb']))
+            else:
+                self.colors = np.zeros_like(self.points, dtype=self.color_default_dtype)
 
-        if fn['intensity'] is not None:
-            self.intensities = np.squeeze(pc.numpy(fields=[fn['intensity']]))
-        else:
-            self.intensities = np.zeros(shape=(len(self.points), ), dtype=self.intensities_default_dtype)
+            if fn['intensity'] is not None:
+                self.intensities = np.squeeze(pc.numpy(fields=[fn['intensity']]))
+            else:
+                self.intensities = np.zeros(shape=(len(self.points), ), dtype=self.intensities_default_dtype)
+            return True
+
+        except:
+            return False
 
     # https://pypi.org/project/pypcd4/
     def write_pcd(self, filename: str, verbose: int = 0) -> bool:
