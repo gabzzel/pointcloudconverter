@@ -1,4 +1,5 @@
 import sys
+from typing import Union, Tuple, List
 
 import numpy as np
 
@@ -50,7 +51,7 @@ def convert_to_type_incl_scaling(array: np.ndarray, target_type: np.dtype, float
         return (as_float64 / max_value_for_type(array.dtype) * scaling).astype(target_type)
 
 
-def map_field_names(from_field_names: list[str]) -> dict:
+def map_field_names(from_field_names: Union[List[str], Tuple[str]]) -> dict:
     mapping = {'x': None, 'y': None, 'z': None, 'r': None, 'g': None, 'b': None, 'intensity': None}
 
     for field_name in from_field_names:

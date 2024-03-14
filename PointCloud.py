@@ -12,6 +12,7 @@ from tqdm import tqdm
 import subprocess
 
 import util
+from custom_overwrites.LasDataOverwrite import CustomLasData
 from io_utils import find_potreeconverter, convert_type_integers_incl_scaling, get_skip_lines_pts
 from util import convert_to_type_incl_scaling, map_field_names
 
@@ -84,7 +85,7 @@ class PointCloud:
         return True
 
     # https://pypi.org/project/pye57/
-    def write_e57(self, filename: str) -> bool:
+    def write_e57(self, filename: str, verbose: int = 0) -> bool:
         e57_object = pye57.E57(filename, mode="w")
 
         raw_data = dict()
@@ -122,7 +123,7 @@ class PointCloud:
 
         return True
 
-    def write_las(self, filename: str) -> bool:
+    def write_las(self, filename: str, verbose: int = 0) -> bool:
         point_format = 3
         header = laspy.LasHeader(point_format=point_format)
 
@@ -139,7 +140,7 @@ class PointCloud:
             header.maxs = np.array([self.custom_bounds[1], self.custom_bounds[3], self.custom_bounds[5]])
             header.mins = np.array([self.custom_bounds[0], self.custom_bounds[2], self.custom_bounds[4]])
 
-        las = laspy.LasData(header)
+        las = CustomLasData(header)
         max_allowed = np.iinfo(np.int32).max * header.scales + header.offsets
         min_allowed = np.iinfo(np.int32).min * header.scales + header.offsets
 
@@ -154,7 +155,7 @@ class PointCloud:
         las.red = self.colors[:, 0]
         las.green = self.colors[:, 1]
         las.blue = self.colors[:, 2]
-        las.write(filename)
+        las.write(filename, verbose=verbose)
 
         return True
 
@@ -198,7 +199,7 @@ class PointCloud:
         return True
 
     # https://python-plyfile.readthedocs.io/en/latest/usage.html#creating-a-ply-file
-    def write_ply(self, filename: str) -> bool:
+    def write_ply(self, filename: str, verbose: int = 0) -> bool:
 
         point_type = self.points.dtype.name
         color_type = self.colors.dtype.name
@@ -260,7 +261,7 @@ class PointCloud:
         self.colors = np.stack((data['r'], data['g'], data['b']), axis=1)
         return True
 
-    def write_pts(self, filename: str) -> bool:
+    def write_pts(self, filename: str, verbose: int = 0) -> bool:
         # Make sure the colors are the correct format.
         if np.issubdtype(self.colors.dtype, np.integer) and self.colors.dtype != np.dtype(np.uint8):
             self.colors = convert_type_integers_incl_scaling(self.colors, np.dtype(np.uint8))
@@ -332,7 +333,7 @@ class PointCloud:
             self.intensities = np.zeros(shape=(len(self.points), ), dtype=self.intensities_default_dtype)
 
     # https://pypi.org/project/pypcd4/
-    def write_pcd(self, filename: str) -> bool:
+    def write_pcd(self, filename: str, verbose: int = 0) -> bool:
         fields = ['x', 'y', 'z', 'intensity', 'rgb']
         types = [self.points.dtype, self.points.dtype, self.points.dtype, self.intensities.dtype]
 

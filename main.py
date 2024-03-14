@@ -1,20 +1,19 @@
-import os
-import pathlib
+import argparse
 import subprocess
 import sys
 import time
 from pathlib import Path
-import argparse
-from colorama import init as colorama_init
+from typing import Tuple, Optional
+
 from colorama import Fore
 from colorama import Style
+from colorama import init as colorama_init
 
 import PointCloud
 import io_utils
-from typing import Tuple, Optional
 
 
-def parse_args(valid_extensions) -> Optional[Tuple[Path, str, Path, str]]:
+def parse_args(valid_extensions) -> Optional[Tuple[Path, str, Path, str, bool]]:
     description = "This program is used to convert point clouds of different formats from and to each other."
     parser = argparse.ArgumentParser(prog="Point Cloud Converter", description=description)
     parser.add_argument('origin_path',
@@ -24,7 +23,7 @@ def parse_args(valid_extensions) -> Optional[Tuple[Path, str, Path, str]]:
 
     parser.add_argument('-destination_path', '-destination', '-dest', '-d',
                         help='Path of the destination of the converted point cloud. If a folder, places converted '
-                             'pointcloud in that folder. If a file path, writes the converted point cloud to that '
+                             'point cloud in that folder. If a file path, writes the converted point cloud to that '
                              'file path.',
                         action='store',
                         type=Path)
@@ -42,8 +41,17 @@ def parse_args(valid_extensions) -> Optional[Tuple[Path, str, Path, str]]:
                         action='store_true',
                         default=False)
 
+    parser.add_argument('-verbose', '-v',
+                        help="The verbosity level. Default 0 is nothing. 1 provides basic information. "
+                             "2 prints the information pretty, with colors and progress bars. "
+                             "3 prints the read and write progress percentages raw.",
+                        action='store',
+                        type=int,
+                        default=0)
+
     args = parser.parse_args()
     origin_path: Path = args.origin_path
+    verbose = args.verbose
 
     if not origin_path.is_file():
         print(f"ERROR: The provided origin path is not a file ({origin_path}). Cancelling.")
@@ -54,7 +62,7 @@ def parse_args(valid_extensions) -> Optional[Tuple[Path, str, Path, str]]:
               f"one of {valid_extensions}. Cancelling.")
         return None
 
-    log(f"Found valid point cloud file at {origin_path}", 's')
+    log(f"Found valid point cloud file at {origin_path}", 's', verbose)
 
     origin_file_name = origin_path.stem
     origin_directory: Path = origin_path.parent
@@ -64,37 +72,40 @@ def parse_args(valid_extensions) -> Optional[Tuple[Path, str, Path, str]]:
     # Case 1: Destination path and extension are not provided.
     if args.destination_path is None and args.extension is None:
         log(f"No destination path of extension provided. Defaulting to extension .las. "
-            f"The converted point cloud will be stored in the same folder as the origin: ({origin_directory})", 'w')
+            f"The converted point cloud will be stored in the same folder as the origin: ({origin_directory})",
+            'w', verbose)
         destination_path = origin_directory.joinpath(origin_file_name, '.las')
 
     # Case 2: destination path is a (valid) file. Ignore the extension.
     elif (args.destination_path is not None and provided_destination_path.is_file() and
           provided_destination_path.suffix in valid_extensions):
-        log(f"Found valid destination file: {provided_destination_path}", 's')
+        log(f"Found valid destination file: {provided_destination_path}", 's', verbose)
         destination_path = provided_destination_path
 
         if args.extension is not None:
             log(f"A valid extension/format ({args.extension}) is given, but will be ignored since "
-                f"the destination path already provides the target extension {destination_path.suffix}", 'w')
+                f"the destination path already provides the target extension {destination_path.suffix}",
+                'w', verbose)
 
     # Case 3: destination path is a directory and extension is available
     elif args.destination_path is not None and provided_destination_path.is_dir() and args.extension is not None:
-        log(f"Found valid destination directory and extension.", 's')
+        log(f"Found valid destination directory and extension.", 's', verbose)
         destination_path = provided_destination_path.joinpath(origin_file_name + args.extension)
 
     # Case 4: destination path is directory and extension is not available.
     elif args.destination_path is not None and provided_destination_path.is_dir() and args.extension is None:
-        log(f"A valid destination directory has been found but no extension. Default .las will be used.", 'w')
+        log(f"A valid destination directory has been found but no extension. Default .las will be used.",
+            'w', verbose)
         destination_path = provided_destination_path
 
     # Case 5: destination path is not provided and extension is provided.
     elif args.destination_path is None and args.extension is not None:
         log(f"Valid extension {args.extension} has been provided. Point cloud will be placed in the same"
-            f" directory as the original point cloud.", 'w')
+            f" directory as the original point cloud.", 'w', verbose)
         destination_path = origin_directory.joinpath(origin_file_name + args.extension)
 
     if destination_path is None:
-        log(f"Could not parse arguments. Cancelling.", 'e')
+        log(f"Could not parse arguments. Cancelling.", 'e', verbose)
         return None
 
     # If the format should be potree, the destination should be a folder, not a file.
@@ -103,10 +114,10 @@ def parse_args(valid_extensions) -> Optional[Tuple[Path, str, Path, str]]:
 
     if not args.unsafe and destination_path.exists():
         log("Provided safe execution (i.e. no file or folder overwriting) and found existing file or folder "
-            f"{destination_path}. Exitting.", 'e')
+            f"{destination_path}. Exiting.", 'e', verbose)
         return None
 
-    return origin_path, origin_path.suffix, destination_path, args.extension
+    return origin_path, origin_path.suffix, destination_path, args.extension, args.verbose
 
 
 def execute():
@@ -116,7 +127,7 @@ def execute():
     if args is None:
         return
 
-    read_path, read_extension, write_path, write_extension = args
+    read_path, read_extension, write_path, write_extension, verbose = args
 
     point_cloud = PointCloud.PointCloud()
 
@@ -140,10 +151,10 @@ def execute():
     if (read_extension == ".las" or read_extension == ".laz") and write_extension == "potree":
         ptc = io_utils.find_potreeconverter(sys.argv[0])
         if ptc is None:
-            log(f"Could not find potree converter! Cancelling.", 'e')
+            log(f"Could not find potree converter! Cancelling.", 'e', verbose)
             return
         subprocess.run([str(ptc), read_path, "-o", write_path], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
-        log(f"Used potree converter at {ptc} for convert {read_path} to potree.", 's')
+        log(f"Used potree converter at {ptc} for convert {read_path} to potree.", 's', verbose)
         return
 
     success = False
@@ -152,31 +163,38 @@ def execute():
         success = readers[read_extension](str(read_path))
         elapsed = round(time.time() - start_time, 3)
         if success:
-            log(f"Successfully read file {read_path} [{elapsed}s]", 's')
+            log(f"Successfully read file {read_path} [{elapsed}s]", 's', verbose)
 
     if not success:
-        log(f"Could not read file at {read_path}. Cancelling.", 'e')
+        log(f"Could not read file at {read_path}. Cancelling.", 'e', verbose)
         time.sleep(5)
         return
 
     if write_extension in writers:
         start_time = time.time()
-        success = writers[write_extension](str(write_path))
+        success = writers[write_extension](str(write_path), verbose)
         elapsed = round(time.time() - start_time, 3)
         if success:
-            log(f"Written file {write_path} [{elapsed}s]", 's')
+            log(f"Written file {write_path} [{elapsed}s]", 's', verbose)
     elif write_extension == "potree":
         start_time = time.time()
         success = point_cloud.write_potree(current_file=sys.argv[0], target_directory=str(write_path))
         elapsed = round(time.time() - start_time, 3)
         if success:
-            log(f"Written file {write_path} [{elapsed}s]", 's')
+            log(f"Written file {write_path} [{elapsed}s]", 's', verbose)
 
     if not success:
-        log(f"Could not write file at {write_path}.", 'e')
+        log(f"Could not write file at {write_path}.", 'e', verbose)
 
 
-def log(msg: str, level: str) -> None:
+def log(msg: str, level: str, verbosity: int) -> None:
+    if verbosity <= 0 or verbosity >= 3:
+        return
+
+    if verbosity == 1:
+        print(msg)
+        return
+
     level = level.lower().strip()
     if level == 'success' or level == 's':
         print(f"{Fore.GREEN}SUCCESS{Style.RESET_ALL}:", msg)
@@ -189,10 +207,10 @@ def log(msg: str, level: str) -> None:
 if __name__ == '__main__':
     colorama_init()
     if len(sys.argv) > 1:
-        start_time = time.time()
+        # start_time = time.time()
         execute()
-        elapsed = round(time.time() - start_time, 3)
-        print("Finished in ", elapsed, " seconds.")
+        # elapsed = round(time.time() - start_time, 3)
+        # print("Finished in ", elapsed, " seconds.")
     else:
         print("No arguments given.")
         time.sleep(5)
