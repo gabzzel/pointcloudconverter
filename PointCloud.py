@@ -279,17 +279,37 @@ class PointCloud:
         float_addition = 'f' if np.issubdtype(self.colors.dtype, np.floating) else ''
         header = f"X Y Z Intensity R{float_addition} G{float_addition} B{float_addition}\n"
 
+        progress_bar = None
+        if verbose == 2:
+            progress_bar = tqdm(desc="Writing progress", unit='%', total=100)
+
+        progress = 0
         with open(filename, mode='w') as f:
             f.write(header)
             f.write(f"{len(self.points)}\n")
 
-            for i in tqdm(range(len(self.points)), unit="points", leave=True, desc="Writing .pts file..."):
+            for i in range(len(self.points)):
+                new_progress = int(i / len(self.points) * 100)
+                increase = new_progress - progress
+                progress = new_progress
+
+                if progress_bar and increase > 0:
+                    progress_bar.update(increase)
+                elif verbose == 3 and increase > 0:
+                    print(f"w{progress}")
+
                 f.write(
                     " ".join((str(self.points[i][0]), str(self.points[i][1]), str(self.points[i][2]),
                               str(self.intensities[i]),
                               str(self.colors[i][0]), str(self.colors[i][1]), str(self.colors[i][2])))
                 )
                 f.write("\n")
+
+        if verbose == 3:
+            print("w100")
+        if progress_bar:
+            progress_bar.update(float(100.0 - progress))
+
         return True
 
     def write_potree(self,
