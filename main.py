@@ -1,10 +1,12 @@
 import argparse
+import os
 import subprocess
 import sys
 import time
 from pathlib import Path
 from typing import Tuple, Optional
 
+import psutil
 from colorama import Fore
 from colorama import Style
 from colorama import init as colorama_init
@@ -47,6 +49,7 @@ def parse_args(valid_extensions) -> Optional[Tuple[Path, str, Path, str, bool]]:
                              "3 prints the read and write progress percentages raw.",
                         action='store',
                         type=int,
+                        choices=[0, 1, 2, 3],
                         default=0)
 
     args = parser.parse_args()
@@ -54,12 +57,12 @@ def parse_args(valid_extensions) -> Optional[Tuple[Path, str, Path, str, bool]]:
     verbose = args.verbose
 
     if not origin_path.is_file():
-        print(f"ERROR: The provided origin path is not a file ({origin_path}). Cancelling.")
+        log(f"The provided origin path is not a file ({origin_path}). Cancelling.", 'e', verbose)
         return None
 
     if origin_path.suffix not in valid_extensions:
-        print(f"ERROR: The provided file does not have a valid extension. Found {origin_path.suffix} but expected "
-              f"one of {valid_extensions}. Cancelling.")
+        log(f"The provided file does not have a valid extension. Found {origin_path.suffix} but expected "
+            f"one of {valid_extensions}. Cancelling.", 'e', verbose)
         return None
 
     log(f"Found valid point cloud file at {origin_path}", 's', verbose)
@@ -125,12 +128,17 @@ def execute():
     args = parse_args(extensions)
 
     if args is None:
+        log("Could not parse arguments. Exiting.", 'e', True)
+        time.sleep(5)
         return
 
     read_path, read_extension, write_path, write_extension, verbose = args
 
-    point_cloud = PointCloud.PointCloud()
+    if not check_file(read_path, verbose):
+        log("File checking failed. Exiting.", 'e', verbose)
+        return
 
+    point_cloud = PointCloud.PointCloud()
     readers = {
         ".las": point_cloud.read_las,
         ".laz": point_cloud.read_las,
@@ -178,7 +186,8 @@ def execute():
             log(f"Written file {write_path} [{elapsed}s]", 's', verbose)
     elif write_extension == "potree":
         start_time = time.time()
-        success = point_cloud.write_potree(current_file=sys.argv[0], target_directory=str(write_path), verbosity=verbose)
+        success = point_cloud.write_potree(current_file=sys.argv[0], target_directory=str(write_path),
+                                           verbosity=verbose)
         elapsed = round(time.time() - start_time, 3)
         if success:
             log(f"Written file {write_path} [{elapsed}s]", 's', verbose)
@@ -202,6 +211,33 @@ def log(msg: str, level: str, verbosity: int) -> None:
         print(f"{Fore.YELLOW}WARNING{Style.RESET_ALL}:", msg)
     elif level == 'error' or level == 'er' or level == 'e':
         print(f"{Fore.RED}ERROR{Style.RESET_ALL}:", msg)
+
+
+def check_file(file_path: os.PathLike, verbose: bool) -> bool:
+    p = file_path
+    if not isinstance(file_path, Path):
+        p = Path(file_path)
+
+    if not p.exists():
+        log(f"File does not exist at {p}", 'e', verbose)
+        return False
+
+    if not p.is_file():
+        log(f"Could not find file at {p}, found something else.", 'e', verbose)
+        return False
+
+    try:
+        available_memory = psutil.virtual_memory().available
+        file_size = os.path.getsize(file_path)
+        if file_size > float(available_memory) * 0.9:
+            recommended_gb = round(float(file_size) * 1.5 / (1024 * 1024 * 1024), 3)
+            log(f"File size (almost) exceeds system memory. Recommended is at least "
+                f"{recommended_gb} GB.", 'w', verbose)
+
+    except Exception as e:
+        log(f"Could not check memory requirements. Exception {e}", 'w', verbose)
+
+    return True
 
 
 if __name__ == '__main__':
