@@ -11,11 +11,16 @@ It supports the following formats:
 
 ## How to use
 Execute using the command line with the following arguments:
-- REQUIRED: A file path to an origin point cloud file (must be an absolute full path.)
-- OPTIONAL: A destination file or folder path using `-destination` , `-dest` or `-d` followed by the desired path.
-If not provided, the destination will be assumed to be the same folder as the origin. The filename will also be the same (except for the extension of course).
-- OPTIONAL: A destination extension using `-extension`, `-ext` or `e`. Ignored if destination path is already a valid destination point cloud file path. Defaults to `.las` if not provided.
-- OPTIONAL: `-unsafe` or `-u` to allow the application to overwrite folders and files. By default, the program does *not* overwrite files.
+- A file path to an origin point cloud file. Must be an absolute full path. (Required positional argument) 
+- `-destination` (aliasses `-dest` and `-d`) : A destination file or folder path using  followed by the desired path.
+If not provided, the destination directory will be assumed to be the same directory as the origin. The filename will also be the same (except for the extension of course).
+- `-extension` (aliasses `-ext` and `e`) : A destination extension using . Ignored if destination path is already a valid destination point cloud file path. Defaults to `.las` if not provided.
+- `-unsafe` (alias `-u`) : to allow the application to overwrite folders and files. By default, the program does *not* overwrite files or directories.
+- `-verbose` (alias `-v`) : Specify a verbosity level, default is `2`.
+  - `0` = No information is logged to the console.
+  - `1` = Only basic information is printed to the console (e.g "Reading file complete.")
+  - `2` = Prints nicely formatted messages and progress bars (while writing only).
+  - `3` = Prints progress as a percentage to the console. Useful if you want to use the executable as is and read the progress from the standard output stream.
 
 ## Examples:
 1. Providing only an origin. Extension defaults to `.las`.  
