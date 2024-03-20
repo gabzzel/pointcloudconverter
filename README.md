@@ -5,7 +5,7 @@ It supports the following formats:
 - `.las` (and compressed `.laz`) reading & writing using [laspy](https://github.com/laspy/laspy)
 - `.ply` (both text and binary) reading & writing using [plyfile](https://github.com/dranjan/python-plyfile)
 - `.e57` reading & writing using [pye57](https://github.com/davidcaron/pye57)
-- `.pts` reading & writing
+- `.pts` reading & writing (Warning: ASCII mode only)
 - `.pcd` reading & writing using [pypcd4](https://github.com/MapIV/pypcd4)
 - `potree` writing only using [potreeconverter](https://github.com/potree/PotreeConverter) (executable included in build)
 
