@@ -316,6 +316,7 @@ class PointCloud:
     def write_potree(self,
                      current_file: str,
                      target_directory: str,
+                     origin_las_path: Optional[str] = None,
                      potreeconverter_path: Optional[str] = None,
                      verbosity: int = 0):
         # Find the Potree converter by
@@ -331,20 +332,24 @@ class PointCloud:
         if verbosity == 1 or verbosity == 2:
             print(f"Found potree converter at {potree_exe}.")
 
-        tempdir = tempfile.gettempdir()
-        temp_las_file = str(os.path.join(tempdir, "templas.las"))
+        remove_las_file_afterwards = False
 
-        self.write_las(temp_las_file, verbose=verbosity)  # Create a temporary las file.
+        if origin_las_path is None:
+            tempdir = tempfile.gettempdir()
+            origin_las_path = str(os.path.join(tempdir, "templas.las"))
+            if verbosity == 2:
+                print(f"Creating temporary las file at {origin_las_path}")
+            self.write_las(origin_las_path, verbose=verbosity)  # Create a temporary las file.
+            remove_las_file_afterwards = True
 
         #subprocess.run([str(potree_exe), temp_las_file, "-o", target_directory], stdout=subprocess.DEVNULL,
         #               stderr=subprocess.STDOUT)
 
-        arguments = [temp_las_file, '-o', target_directory]
+        arguments = [origin_las_path, '-o', target_directory]
         command = [potree_exe] + arguments
         process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
 
         if verbosity == 2 or verbosity == 3:
-
             progress_bar = tqdm(desc="Writing potree", total=100, unit='%') if verbosity == 2 else None
             percent = 0
             for stdout_line in iter(process.stdout.readline, ''):
@@ -355,6 +360,7 @@ class PointCloud:
                     percent = new_percent
                     if progress_bar:
                         progress_bar.update(increase)
+                        ## TODO make the progress bar end on a nice 100%
                     else:
                         print(f"w{percent}")
 
@@ -370,7 +376,12 @@ class PointCloud:
         if verbosity == 3:  # Print that we are done.
             print("w100")
 
-        os.remove(temp_las_file)  # Clean up
+
+        if remove_las_file_afterwards:
+            os.remove(origin_las_path)  # Clean up
+            if verbosity == 2:
+                print("Removed temporary las file.")
+
         return True
 
     def read_pcd(self, filename: str):

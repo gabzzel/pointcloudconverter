@@ -155,14 +155,13 @@ def execute():
         ".pcd": point_cloud.write_pcd
     }
 
-    # Special case where we can directly call the Potree converter
-    if (read_extension == ".las" or read_extension == ".laz") and write_extension == "potree":
-        ptc = io_utils.find_potreeconverter(sys.argv[0])
-        if ptc is None:
-            log(f"Could not find potree converter! Cancelling.", 'e', verbose)
-            return
-        subprocess.run([str(ptc), read_path, "-o", write_path], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
-        log(f"Used potree converter at {ptc} for convert {read_path} to potree.", 's', verbose)
+    # Special case where we can directly use the potree converter
+    if read_extension == ".las" and write_extension == "potree":
+        point_cloud.write_potree(current_file=sys.argv[0],
+                                 target_directory=str(write_path),
+                                 verbosity=verbose,
+                                 origin_las_path=str(read_path))
+        log(f"Used potree converter for convert {read_path} to potree.", 's', verbose)
         return
 
     success = False
@@ -187,10 +186,10 @@ def execute():
     elif write_extension == "potree":
         start_time = time.time()
         success = point_cloud.write_potree(current_file=sys.argv[0], target_directory=str(write_path),
-                                           verbosity=verbose)
+                                           verbosity=verbose, origin_las_path=None)
         elapsed = round(time.time() - start_time, 3)
         if success:
-            log(f"Written file {write_path} [{elapsed}s]", 's', verbose)
+            log(f"Written point cloud at {write_path} [{elapsed}s]", 's', verbose)
 
     if not success:
         log(f"Could not write file at {write_path}.", 'e', verbose)
