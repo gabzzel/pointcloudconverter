@@ -9,6 +9,7 @@ import laspy  # https://pypi.org/project/laspy/
 import plyfile  # https://pypi.org/project/plyfile/ and https://python-plyfile.readthedocs.io/en/latest/index.html
 from plyfile import PlyData
 import pypcd4  # https://pypi.org/project/pypcd4/
+from pye57.libe57 import E57Exception
 from tqdm import tqdm
 import subprocess
 
@@ -63,9 +64,18 @@ class PointCloud:
     # https://pypi.org/project/pye57/
     def read_e57(self, filename: str) -> bool:
         e57_object = pye57.E57(filename)
-        data = e57_object.read_scan(0, row_column=False, transform=True, intensity=True, colors=True,
-                                    ignore_missing_fields=True)
         header: pye57.ScanHeader = e57_object.get_header(0)
+        try:
+            _r = header.rotation
+            _t = header.translation
+            transform = True
+        except E57Exception as e:
+            print(f"Invalid pose (rotation and/or translation). Ignoring pose. Got exception: {e}")
+            transform = False
+
+        data = e57_object.read_scan(0, row_column=False, transform=transform, intensity=True, colors=True,
+                                    ignore_missing_fields=True)
+
 
         fm = map_field_names(header.point_fields)  # Field mapping
 
@@ -82,9 +92,12 @@ class PointCloud:
         else:
             self.colors = np.zeros(shape=(header.point_count, 3), dtype=self.color_default_dtype)
 
-        if header.cartesianBounds is not None:
-            self.custom_bounds = np.array([header.xMinimum, header.xMaximum, header.yMinimum, header.yMaximum,
-                                           header.zMinimum, header.zMaximum])
+        try:
+            if header.cartesianBounds is not None:
+                self.custom_bounds = np.array([header.xMinimum, header.xMaximum, header.yMinimum, header.yMaximum,
+                                               header.zMinimum, header.zMaximum])
+        except E57Exception as e:
+            print(f"Could not get cartesian bounds, got exception {e}")
 
         return True
 
@@ -375,7 +388,6 @@ class PointCloud:
 
         if verbosity == 3:  # Print that we are done.
             print("w100")
-
 
         if remove_las_file_afterwards:
             os.remove(origin_las_path)  # Clean up
